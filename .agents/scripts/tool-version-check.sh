@@ -8,7 +8,7 @@
 #   tool-version-check.sh --category npm  # Check only npm tools
 #   tool-version-check.sh --json       # Output as JSON
 #
-# Categories: npm, brew, pip, all (default)
+# Categories: npm, brew, pip, custom, all (default)
 
 # shellcheck disable=SC1091
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--category | -c)
 		if [[ -z "${2:-}" ]]; then
-			echo "Error: --category requires a value (npm, brew, pip, all)"
+			echo "Error: --category requires a value (npm, brew, pip, custom, all)"
 			exit 1
 		fi
 		CATEGORY="$2"
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
 		echo ""
 		echo "Options:"
 		echo "  --update, -u       Automatically update outdated tools"
-		echo "  --category, -c     Check only specific category (npm, brew, pip, all)"
+		echo "  --category, -c     Check only specific category (npm, brew, pip, custom, all)"
 		echo "  --json, -j         Output results as JSON"
 		echo "  --quiet, -q        Only show outdated tools"
 		echo "  --help, -h         Show this help"
@@ -64,10 +64,49 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
+# Detect how OpenCode was installed — build the right upgrade command.
+# update_cmd is executed via `bash -c` so it must be a self-contained string.
+# Use `command -v` path directly: bun-installed binaries live under ~/.bun/bin/,
+# so the path itself contains "bun". This avoids `readlink -f` which is a GNU
+# extension not available on macOS by default.
+# shellcheck disable=SC2016  # Single quotes intentional: string is a bash -c payload, must not expand at assignment time
+_oc_upgrade_cmd='if r=$(command -v opencode 2>/dev/null); [[ "$r" == *bun* ]]; then bun install -g opencode-ai@latest; else npm install -g opencode-ai@latest; fi'
+
+# Platform-aware brew package upgrade command.
+# On macOS (or any system with brew), use brew upgrade.
+# On Debian/Ubuntu (apt), use apt-get install --only-upgrade.
+# On Fedora/RHEL/CentOS (dnf/yum), use dnf upgrade.
+# Falls back to brew upgrade if no system package manager is detected.
+# $1 = brew formula name (e.g. "gh", "jq", "shellcheck")
+# $2 = apt/dnf package name if different from brew name (optional; defaults to $1)
+# The returned string is a self-contained bash -c payload (no expansion at definition time).
+# shellcheck disable=SC2016  # Single quotes intentional: bash -c payload
+_brew_upgrade_cmd() {
+	local brew_pkg="$1"
+	local sys_pkg="${2:-$1}"
+	# Return a self-contained bash -c string that detects the package manager at runtime.
+	# Uses single quotes so variables are NOT expanded now — they expand inside bash -c.
+	printf '%s' 'if command -v brew >/dev/null 2>&1; then brew upgrade '"${brew_pkg}"'; elif command -v apt-get >/dev/null 2>&1; then sudo apt-get install --only-upgrade -y '"${sys_pkg}"'; elif command -v dnf >/dev/null 2>&1; then sudo dnf upgrade -y '"${sys_pkg}"'; elif command -v yum >/dev/null 2>&1; then sudo yum upgrade -y '"${sys_pkg}"'; else echo "No supported package manager found (brew/apt-get/dnf/yum)" >&2; exit 1; fi'
+}
+
+# PEP 668-safe pip upgrade command.
+# Ubuntu 24.04+, Fedora 38+, and modern Debian mark the system Python as
+# "externally managed" — bare `pip install` is blocked with an error.
+# Safe upgrade order: pipx (isolated venv) → pip --user (user site-packages).
+# $1 = pip package name (e.g. "beads-viewer", "dspy-ai", "crawl4ai")
+# shellcheck disable=SC2016  # Single quotes intentional: bash -c payload
+_pip_upgrade_cmd() {
+	local pkg="$1"
+	printf '%s' 'if command -v pipx >/dev/null 2>&1 && pipx list --short 2>/dev/null | grep -qi '"^${pkg}"'; then pipx upgrade '"${pkg}"'; else pip install --user --upgrade '"${pkg}"' 2>/dev/null || pip install --upgrade '"${pkg}"'; fi'
+}
+
 # Tool definitions
 # Format: category|display_name|cli_command|version_flag|package_name|update_command
 
 NPM_TOOLS=(
+	"npm|OpenCode|opencode|--version|opencode-ai|${_oc_upgrade_cmd}"
+	"npm|Claude Code CLI|claude|--version|@anthropic-ai/claude-code|npm install -g @anthropic-ai/claude-code@latest"
+	"npm|Codex CLI|codex|--version|@openai/codex|npm install -g @openai/codex@latest"
 	"npm|Augment CLI|auggie|--version|@augmentcode/auggie@prerelease|npm install -g @augmentcode/auggie@prerelease"
 	"npm|Repomix|repomix|--version|repomix|npm install -g repomix@latest"
 	"npm|DSPyGround|dspyground|--version|dspyground|npm install -g dspyground@latest"
@@ -83,21 +122,31 @@ NPM_TOOLS=(
 )
 
 BREW_TOOLS=(
-	"brew|OpenCode|opencode|--version|anomalyco/tap/opencode|brew upgrade anomalyco/tap/opencode"
-	"brew|GitHub CLI|gh|--version|gh|brew upgrade gh"
-	"brew|GitLab CLI|glab|--version|glab|brew upgrade glab"
-	"brew|Worktrunk|wt|--version|max-sixty/worktrunk/wt|brew upgrade max-sixty/worktrunk/wt"
-	"brew|Beads CLI|bd|version|steveyegge/beads/bd|brew upgrade steveyegge/beads/bd"
-	"brew|jq|jq|--version|jq|brew upgrade jq"
-	"brew|ShellCheck|shellcheck|--version|shellcheck|brew upgrade shellcheck"
+	"brew|GitHub CLI|gh|--version|gh|$(_brew_upgrade_cmd gh)"
+	"brew|GitLab CLI|glab|--version|glab|$(_brew_upgrade_cmd glab)"
+	"brew|Worktrunk|wt|--version|max-sixty/worktrunk/wt|$(_brew_upgrade_cmd max-sixty/worktrunk/wt)"
+	"brew|Beads CLI|bd|version|steveyegge/beads/bd|$(_brew_upgrade_cmd steveyegge/beads/bd)"
+	"brew|jq|jq|--version|jq|$(_brew_upgrade_cmd jq)"
+	"brew|ShellCheck|shellcheck|--version|shellcheck|$(_brew_upgrade_cmd shellcheck)"
 )
 
 PIP_TOOLS=(
-	"pip|Beads Viewer|beads_viewer|--version|beads-viewer|pip install --upgrade beads-viewer"
-	"pip|DSPy|dspy|--version|dspy-ai|pip install --upgrade dspy-ai"
-	"pip|Crawl4AI|crawl4ai|--version|crawl4ai|pip install --upgrade crawl4ai"
+	"pip|Beads Viewer|beads_viewer|--version|beads-viewer|$(_pip_upgrade_cmd beads-viewer)"
 	"pip|Analytics MCP|analytics-mcp|--version|analytics-mcp|pipx upgrade analytics-mcp"
 	"pip|Outscraper MCP|outscraper-mcp-server|--version|outscraper-mcp-server|uv tool upgrade outscraper-mcp-server"
+)
+# Library dependencies (e.g. dspy-ai, crawl4ai) are intentionally excluded from
+# PIP_TOOLS. They are project-level dependencies managed inside project venvs via
+# pyproject.toml / requirements.txt — not global CLI tools. Auto-updating them
+# here installs redundant global copies that diverge from pinned project versions.
+# See: https://github.com/marcusquinn/aidevops/issues/6763
+
+# Tools installed via curl/custom installers (not in brew/npm/pip registries)
+# Latest version cannot be checked via registry — use "self" category
+# which skips latest-version lookup and just reports installed version
+CUSTOM_TOOLS=(
+	"self|Cursor CLI|agent|--version|cursor-agent|agent update"
+	"self|Droid CLI|droid|--version|droid|curl -fsSL https://app.factory.ai/install.sh | bash"
 )
 
 # Counters
@@ -113,6 +162,72 @@ declare -a JSON_RESULTS=()
 # A well-behaved --version should return in <1s. 10s is generous enough for
 # slow interpreters (Python, Ruby) while still catching hung MCP servers.
 readonly VERSION_TIMEOUT=10
+
+# Get installed version from pipx isolated environments.
+# pipx installs each package in its own venv — pip show cannot see them.
+get_pipx_installed_version() {
+	local pkg="$1"
+	local version=""
+	if command -v pipx &>/dev/null; then
+		version=$(pipx list --short 2>/dev/null | grep -i "^${pkg}" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+	fi
+	if [[ -n "$version" ]]; then
+		echo "$version"
+		return 0
+	fi
+	echo "not installed"
+	return 0
+}
+
+# Get installed version from uv tool isolated environments.
+# uv tool installs each package in its own managed venv — pip show cannot see them.
+get_uv_installed_version() {
+	local pkg="$1"
+	local version=""
+	if command -v uv &>/dev/null; then
+		version=$(uv tool list 2>/dev/null | grep -i "^${pkg}" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+	fi
+	if [[ -n "$version" ]]; then
+		echo "$version"
+		return 0
+	fi
+	echo "not installed"
+	return 0
+}
+
+# Get installed version for Python packages across all install methods.
+# Tries pip show first (standard pip installs), then pipx (isolated tools like
+# analytics-mcp), then uv tool (isolated tools like outscraper-mcp-server).
+# pip-only libraries (e.g. crawl4ai, dspy) have no CLI binary so command -v
+# always fails — this function handles all three installation methods.
+get_python_installed_version() {
+	local pkg="$1"
+	local version
+
+	# 1. Try pip show (standard pip installs and library packages)
+	version=$(pip show "$pkg" 2>/dev/null | grep -i '^Version:' | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+	if [[ -n "$version" ]]; then
+		echo "$version"
+		return 0
+	fi
+
+	# 2. Try pipx (packages installed in isolated pipx environments)
+	version=$(get_pipx_installed_version "$pkg")
+	if [[ "$version" != "not installed" ]]; then
+		echo "$version"
+		return 0
+	fi
+
+	# 3. Try uv tool (packages installed via uv tool install)
+	version=$(get_uv_installed_version "$pkg")
+	if [[ "$version" != "not installed" ]]; then
+		echo "$version"
+		return 0
+	fi
+
+	echo "not installed"
+	return 0
+}
 
 # Get installed version from npm global package.json
 # Fallback for tools where --version starts a server instead of printing a version
@@ -218,17 +333,29 @@ get_npm_latest() {
 	return 0
 }
 
-# Get latest brew version
+# Get latest brew version.
+# When brew is available, use `brew info` (works on macOS and Linux with brew).
+# When brew is absent (common on Linux), fall back to the GitHub Releases API
+# for tools with known repos. This keeps version detection cross-platform even
+# when the update path uses apt/dnf instead of brew.
 get_brew_latest() {
 	local pkg="$1"
 	local brew_bin=""
 	brew_bin=$(command -v brew 2>/dev/null || true)
 	if [[ -n "$brew_bin" && -x "$brew_bin" ]]; then
 		timeout_sec "$PKG_QUERY_TIMEOUT" "$brew_bin" info "$pkg" 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
-	elif [[ "$pkg" == "gh" ]]; then
-		get_public_release_tag "cli/cli"
 	else
-		echo "unknown"
+		# No brew — fall back to GitHub Releases API for known tools.
+		# Strip tap prefix (e.g. "max-sixty/worktrunk/wt" → "wt") for matching.
+		local base_pkg="${pkg##*/}"
+		case "$base_pkg" in
+		gh) get_public_release_tag "cli/cli" ;;
+		glab) get_public_release_tag "gitlab-org/cli" ;;
+		wt) get_public_release_tag "max-sixty/worktrunk" ;;
+		jq) get_public_release_tag "jqlang/jq" ;;
+		shellcheck) get_public_release_tag "koalaman/shellcheck" ;;
+		*) echo "unknown" ;;
+		esac
 	fi
 	return 0
 }
@@ -265,8 +392,13 @@ check_tool() {
 	local update_cmd="$6"
 
 	local installed
-	# Pass package name for npm tools so fallback to package.json works
-	if [[ "$category" == "npm" ]]; then
+	# pip tools: detect across pip/pipx/uv — pip-only libraries (e.g.
+	# crawl4ai, dspy) have no CLI binary so command -v always fails.
+	# npm tools: pass package name so fallback to package.json works.
+	# All other categories: standard CLI binary detection.
+	if [[ "$category" == "pip" ]]; then
+		installed=$(get_python_installed_version "$pkg")
+	elif [[ "$category" == "npm" ]]; then
 		installed=$(get_installed_version "$cmd" "$ver_flag" "$pkg")
 	else
 		installed=$(get_installed_version "$cmd" "$ver_flag")
@@ -277,6 +409,7 @@ check_tool() {
 	npm) latest=$(get_npm_latest "$pkg") ;;
 	brew) latest=$(get_brew_latest "$pkg") ;;
 	pip) latest=$(get_pip_latest "$pkg") ;;
+	self) latest="$installed" ;; # Self-updating tools — no registry to check
 	*) latest="unknown" ;;
 	esac
 
@@ -368,14 +501,8 @@ check_category() {
 	return 0
 }
 
-# Main
-main() {
-	if [[ "$JSON_OUTPUT" != "true" && "$QUIET" != "true" ]]; then
-		echo -e "${BOLD}${BLUE}Tool Version Check${NC}"
-		echo "=================="
-	fi
-
-	# Check requested categories
+# Dispatch category checks based on CATEGORY variable
+_check_all_categories() {
 	case "$CATEGORY" in
 	npm)
 		check_category "NPM" "${NPM_TOOLS[@]}"
@@ -385,6 +512,9 @@ main() {
 		;;
 	pip)
 		check_category "Python/Pip" "${PIP_TOOLS[@]}"
+		;;
+	custom)
+		check_category "Custom/Self-Updating" "${CUSTOM_TOOLS[@]}"
 		;;
 	all | *)
 		if [[ ${#NPM_TOOLS[@]} -gt 0 ]]; then
@@ -396,35 +526,42 @@ main() {
 		if command -v pip &>/dev/null && [[ ${#PIP_TOOLS[@]} -gt 0 ]]; then
 			check_category "Python/Pip" "${PIP_TOOLS[@]}"
 		fi
+		if [[ ${#CUSTOM_TOOLS[@]} -gt 0 ]]; then
+			check_category "Custom/Self-Updating" "${CUSTOM_TOOLS[@]}"
+		fi
 		;;
 	esac
+	return 0
+}
 
-	# Output results
-	if [[ "$JSON_OUTPUT" == "true" ]]; then
-		echo "{"
-		echo "  \"summary\": {"
-		echo "    \"installed\": $INSTALLED_COUNT,"
-		echo "    \"outdated\": $OUTDATED_COUNT,"
-		echo "    \"not_installed\": $NOT_INSTALLED_COUNT,"
-		echo "    \"timeout\": $TIMEOUT_COUNT,"
-		echo "    \"unknown\": $UNKNOWN_COUNT"
-		echo "  },"
-		echo "  \"tools\": ["
-		local first=true
-		for result in "${JSON_RESULTS[@]}"; do
-			if [[ "$first" == "true" ]]; then
-				first=false
-			else
-				echo ","
-			fi
-			echo -n "    $result"
-		done
-		echo ""
-		echo "  ]"
-		echo "}"
-		return 0
-	fi
+# Emit JSON output for all results and return
+_output_json_results() {
+	echo "{"
+	echo "  \"summary\": {"
+	echo "    \"installed\": $INSTALLED_COUNT,"
+	echo "    \"outdated\": $OUTDATED_COUNT,"
+	echo "    \"not_installed\": $NOT_INSTALLED_COUNT,"
+	echo "    \"timeout\": $TIMEOUT_COUNT,"
+	echo "    \"unknown\": $UNKNOWN_COUNT"
+	echo "  },"
+	echo "  \"tools\": ["
+	local first=true
+	for result in "${JSON_RESULTS[@]}"; do
+		if [[ "$first" == "true" ]]; then
+			first=false
+		else
+			echo ","
+		fi
+		echo -n "    $result"
+	done
+	echo ""
+	echo "  ]"
+	echo "}"
+	return 0
+}
 
+# Print summary counts and handle auto-update or update instructions
+_output_summary_and_updates() {
 	# Summary (skip in quiet mode if nothing outdated)
 	if [[ "$QUIET" == "true" && $OUTDATED_COUNT -eq 0 ]]; then
 		return 0
@@ -445,7 +582,6 @@ main() {
 		echo ""
 	fi
 
-	# Handle updates
 	if [[ $OUTDATED_COUNT -gt 0 ]]; then
 		if [[ "$AUTO_UPDATE" == "true" ]]; then
 			echo -e "${BLUE}Updating outdated tools...${NC}"
@@ -487,6 +623,24 @@ main() {
 	else
 		echo -e "${GREEN}All installed tools are up to date!${NC}"
 	fi
+	return 0
+}
+
+# Main
+main() {
+	if [[ "$JSON_OUTPUT" != "true" && "$QUIET" != "true" ]]; then
+		echo -e "${BOLD}${BLUE}Tool Version Check${NC}"
+		echo "=================="
+	fi
+
+	_check_all_categories
+
+	if [[ "$JSON_OUTPUT" == "true" ]]; then
+		_output_json_results
+		return 0
+	fi
+
+	_output_summary_and_updates
 }
 
 main

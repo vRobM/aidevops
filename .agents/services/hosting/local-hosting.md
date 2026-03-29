@@ -17,104 +17,51 @@ tools:
 
 ## Quick Reference
 
-- **Purpose**: Production-like local development with `.local` domains, HTTPS, and port management
 - **Primary CLI**: `localdev-helper.sh [run|init|add|rm|branch|db|list|status|help]`
 - **Legacy CLI**: `localhost-helper.sh [check-port|find-port|list-ports|kill-port|generate-cert|setup-dns|setup-proxy|create-app|start-mcp]`
-- **Port registry**: `~/.local-dev-proxy/ports.json`
-- **Certs**: `~/.local-ssl-certs/`
-- **Routes**: `~/.local-dev-proxy/conf.d/`
-- **Traefik config**: `~/.local-dev-proxy/traefik.yml`
-- **Docker Compose**: `~/.local-dev-proxy/docker-compose.yml`
+- **Port registry**: `~/.local-dev-proxy/ports.json` (range: 3100-3999)
+- **Certs**: `~/.local-ssl-certs/` | **Routes**: `~/.local-dev-proxy/conf.d/`
+- **Traefik**: `~/.local-dev-proxy/traefik.yml` | **Dashboard**: `http://localhost:8080`
 - **Shared Postgres**: `local-postgres` container on port 5432
 
-**Zero-config workflow (recommended):**
-
 ```bash
-# One-time system setup (dnsmasq, resolver, Traefik conf.d)
-localdev-helper.sh init
-
-# In any project directory — auto-registers, injects PORT, runs command
+localdev-helper.sh init          # One-time: dnsmasq, resolver, Traefik conf.d (sudo)
 cd ~/Git/myapp
 localdev-helper.sh run npm run dev
-# → Auto-registers myapp (cert, Traefik route, /etc/hosts, port 3100)
-# → Sets PORT=3100 HOST=0.0.0.0
-# → Runs: npm run dev
-# → https://myapp.local just works
+# → Auto-registers myapp (cert, route, /etc/hosts, port 3100) → https://myapp.local
+localdev-helper.sh add myapp    # Manual: cert + route + /etc/hosts + port
 ```
-
-**Manual workflow — register then start separately:**
-
-```bash
-# Register app: generates cert, creates Traefik route, assigns port
-localdev-helper.sh add myapp
-
-# Result: https://myapp.local on auto-assigned port (3100-3999)
-# Start your app on the assigned port and access via the .local domain
-```
-
-**Why `.local` + SSL + port management?**
-
-| Problem | Solution | Why it matters |
-|---------|----------|----------------|
-| Port conflicts | Port registry (3100-3999) | No "address already in use" errors |
-| Password managers fail | SSL via Traefik + mkcert | 1Password/Bitwarden require HTTPS to autofill |
-| Inconsistent URLs | `.local` domains via dnsmasq | `myapp.local` instead of `localhost:3847` |
-| Browser security warnings | mkcert trusted certs | No "proceed anyway" clicks |
 
 <!-- AI-CONTEXT-END -->
+
+## Prerequisites
+
+```bash
+brew install dnsmasq mkcert && mkcert -install
+brew install orbstack   # or Docker Desktop
+localdev-helper.sh init
+```
+
+OrbStack preferred over Docker Desktop. Traefik uses `host.docker.internal` for host ports. Docker network `local-dev` auto-created by `localdev init` or `db start`.
 
 ## Architecture
 
 ```text
-Browser request: https://myapp.local
-        |
-        v
-  /etc/hosts (127.0.0.1 myapp.local)
-    ← REQUIRED for .local in browsers (mDNS intercepts /etc/resolver)
-        |
-        v
-  Traefik (Docker, ports 80/443/8080)
-    reads conf.d/*.yml (file provider, watch: true)
-    terminates TLS using mkcert certs from ~/.local-ssl-certs/
-        |
-        v
-  http://host.docker.internal:{port}
-    → Your app listening on the registered port
+Browser → /etc/hosts (127.0.0.1 myapp.local)
+        → Traefik (Docker, 80/443) — TLS via mkcert certs
+        → http://host.docker.internal:{port} — your app
 ```
 
-### Component Roles
-
-| Component | Role | Config location |
-|-----------|------|-----------------|
-| **/etc/hosts** | **Primary**: maps `.local` domains to `127.0.0.1` for browsers | `/etc/hosts` |
+| Component | Role | Config |
+|-----------|------|--------|
+| **/etc/hosts** | `.local` mapping for browsers (mDNS intercepts resolver) | `/etc/hosts` |
 | **dnsmasq** | Wildcard `*.local` → `127.0.0.1` (CLI tools only) | `$(brew --prefix)/etc/dnsmasq.conf` |
-| **macOS resolver** | Routes `.local` to dnsmasq for CLI tools | `/etc/resolver/local` |
-| **Traefik v3.3** | Reverse proxy, TLS termination, routing | `~/.local-dev-proxy/traefik.yml` |
-| **mkcert** | Generates browser-trusted wildcard certs | `~/.local-ssl-certs/` |
-| **Port registry** | Tracks app→port→domain mappings | `~/.local-dev-proxy/ports.json` |
-| **conf.d/** | Per-app Traefik route files (hot-reloaded) | `~/.local-dev-proxy/conf.d/` |
+| **macOS resolver** | Routes `.local` to dnsmasq for CLI | `/etc/resolver/local` |
+| **Traefik v3.3** | Reverse proxy, TLS termination | `~/.local-dev-proxy/traefik.yml` |
+| **mkcert** | Browser-trusted wildcard certs | `~/.local-ssl-certs/` |
+| **Port registry** | App-port-domain mappings, collision detection | `~/.local-dev-proxy/ports.json` |
 
-### DNS Resolution and the .local mDNS Problem
-
-macOS reserves `.local` for mDNS (Bonjour/multicast DNS). This creates a resolution conflict:
-
-```text
-Browsers (Chrome, Safari, Firefox):
-  1. /etc/hosts          ← WORKS — only reliable method for .local
-  2. mDNS multicast      ← INTERCEPTS .local before resolver files
-  3. /etc/resolver/local  ← NEVER REACHED for .local in browsers
-
-CLI tools (dig, curl, etc.):
-  1. /etc/hosts           ← Checked first
-  2. /etc/resolver/local  ← Works — routes to dnsmasq
-  3. Upstream DNS         ← External domains
-```
-
-**Why `localdev add` always writes `/etc/hosts`**: The `/etc/resolver/local` → dnsmasq path only works for CLI tools (`dig`, `curl`). Browsers use the system resolver which sends `.local` queries to mDNS before consulting resolver files. Only `/etc/hosts` entries reliably override mDNS for `.local` domains in browsers.
-
-**dnsmasq is still useful** for wildcard subdomain resolution in CLI tools (e.g., `dig feature-login.myapp.local @127.0.0.1`), but it cannot serve as the primary DNS mechanism for browser access.
-
-> **Future consideration**: `.test` (RFC 6761) and `.localhost` (resolves to `127.0.0.1` natively) avoid the mDNS conflict entirely. Switching TLD would be a breaking change for existing projects but would eliminate the `/etc/hosts` requirement. See [RFC 6761](https://www.rfc-editor.org/rfc/rfc6761) and [RFC 6762 Section 3](https://www.rfc-editor.org/rfc/rfc6762#section-3).
+**DNS:** macOS reserves `.local` for mDNS. Browsers use `/etc/hosts` → mDNS (intercepts resolver, never reached). `localdev add` always writes `/etc/hosts`. dnsmasq handles wildcard subdomains for CLI only. Future: `.test` (RFC 6761) avoids conflict but is breaking.
 
 ### Port Registry Format
 
@@ -122,803 +69,172 @@ CLI tools (dig, curl, etc.):
 {
   "apps": {
     "myapp": {
-      "port": 3100,
-      "domain": "myapp.local",
-      "added": "2026-01-15T10:30:00Z",
-      "branches": {
-        "feature-login": {
-          "port": 3101,
-          "subdomain": "feature-login.myapp.local",
-          "added": "2026-01-16T14:00:00Z"
-        }
-      }
+      "port": 3100, "domain": "myapp.local", "added": "2026-01-15T10:30:00Z",
+      "branches": { "feature-login": { "port": 3101, "subdomain": "feature-login.myapp.local" } }
     }
   }
 }
 ```
 
-Port range: **3100-3999** (auto-assigned). Ports are checked against both the registry and OS-level `lsof` to avoid conflicts.
+## CLI — localdev-helper.sh
 
-## CLI Reference — localdev-helper.sh
-
-### init
-
-One-time system setup. Configures dnsmasq, macOS resolver, and migrates Traefik to conf.d directory provider. Requires `sudo`. Idempotent — safe to run multiple times.
+**run** — Zero-config wrapper: auto-registers, resolves port, injects `PORT`/`HOST`, execs command.
 
 ```bash
-localdev-helper.sh init
+localdev-helper.sh run [--name <name>] [--port <port>] [--no-host] <command...>
+# Name inference: --name → package.json name → git repo basename → dir basename
+# In worktree → auto-creates branch subdomain (e.g. https://bugfix-fix.myapp.local)
 ```
 
-Performs:
-
-1. Check prerequisites (docker, mkcert, dnsmasq)
-2. Add `address=/.local/127.0.0.1` to dnsmasq.conf (for CLI wildcard resolution)
-3. Create `/etc/resolver/local` with `nameserver 127.0.0.1` (for CLI tools)
-4. Migrate Traefik from single `dynamic.yml` to `conf.d/` directory provider
-5. Preserve existing routes (backs up to `~/.local-dev-proxy/backup/`)
-6. Restart Traefik if running
-
-Note: `init` sets up dnsmasq for CLI tool resolution (`dig`, `curl`). Browser resolution requires per-app `/etc/hosts` entries, which `add` handles automatically.
-
-### run
-
-Zero-config dev server wrapper. Auto-registers the project if needed, resolves the correct port (main or branch), injects `PORT` and `HOST` environment variables, and execs the command. Signals (SIGINT/SIGTERM) pass through directly to the child process.
+**add / rm**
 
 ```bash
-localdev-helper.sh run [options] <command...>
+localdev-helper.sh add <name> [port]   # cert + route + /etc/hosts + port → https://{name}.local
+localdev-helper.sh rm <name>           # removes all resources
 ```
 
-Options:
-
-- `--name <name>`: Override inferred project name
-- `--port <port>`: Override auto-assigned port
-- `--no-host`: Don't set `HOST=0.0.0.0`
-
-Examples:
+**branch**
 
 ```bash
-# In ~/Git/myapp/ (not yet registered)
-localdev-helper.sh run npm run dev
-# → Auto-registers myapp (cert, Traefik route, /etc/hosts, port 3100)
-# → Sets PORT=3100 HOST=0.0.0.0
-# → Runs: npm run dev
-# → https://myapp.local just works
-
-# In a worktree ~/Git/myapp-bugfix-fix-thing/
-localdev-helper.sh run npm run dev
-# → Auto-detects worktree, creates branch subdomain
-# → Sets PORT=3101
-# → Runs: npm run dev
-# → https://bugfix-fix-thing.myapp.local just works
-
-# Override project name
-localdev-helper.sh run --name my-custom-name pnpm dev
-
-# Override port
-localdev-helper.sh run --port 3200 bun run dev
+localdev-helper.sh branch <app> <branch> [port]   # add branch subdomain
+localdev-helper.sh branch rm <app> <branch>        # remove
+localdev-helper.sh branch list [app]               # list
+# Branch names sanitised (slashes→hyphens, lowercase). Wildcard cert covers *.myapp.local.
 ```
 
-Performs:
-
-1. Infer project name from `package.json` `name` field (stripping npm scope) or git repo basename
-2. Auto-register if not already in port registry (runs full `add` workflow)
-3. Detect worktree/branch context and create branch subdomain route if needed
-4. Set `PORT={assigned_port}` and `HOST=0.0.0.0` environment variables
-5. `exec` the command (replaces the shell process — signals go directly to the child)
-
-Project name inference priority:
-
-1. `--name` flag (explicit override)
-2. `package.json` `name` field (strips `@scope/` prefix)
-3. Git repo basename (strips worktree suffix for worktrees)
-4. Current directory basename (last resort)
-
-### add
-
-Register a new app with cert, Traefik route, `/etc/hosts` entry, and port assignment.
+**db** — Shared Postgres via `local-postgres` Docker container.
 
 ```bash
-localdev-helper.sh add <name> [port]
+localdev-helper.sh db start|stop|status
+localdev-helper.sh db create|drop <dbname> [-f]
+localdev-helper.sh db list
+localdev-helper.sh db url <dbname>   # → postgresql://postgres:localdev@localhost:5432/{dbname}
 ```
-
-- `name`: lowercase alphanumeric + hyphens (e.g., `myapp`, `my-project`)
-- `port`: optional, auto-assigned from 3100-3999 if omitted
-
-Performs:
-
-1. Collision detection (LocalWP domains, registry, port)
-2. Auto-assign port from 3100-3999 (or validate specified port)
-3. Generate mkcert wildcard cert (`*.name.local` + `name.local`)
-4. Create Traefik route: `conf.d/{name}.yml`
-5. Add `/etc/hosts` entry (required for browser resolution of `.local` domains)
-6. Register in `ports.json`
-
-Result: `https://{name}.local` routes to `http://localhost:{port}`
-
-### rm
-
-Remove an app and all its resources (reverses `add`).
-
-```bash
-localdev-helper.sh rm <name>
-```
-
-Removes: all branch routes, Traefik route file, mkcert cert files, `/etc/hosts` entry, registry entry.
-
-### branch
-
-Create branch-specific subdomain routes for worktrees/feature branches.
-
-```bash
-# Add branch subdomain
-localdev-helper.sh branch <app> <branch> [port]
-
-# Remove branch route
-localdev-helper.sh branch rm <app> <branch>
-
-# List branch routes
-localdev-helper.sh branch list [app]
-```
-
-Branch names are sanitised for DNS: slashes become hyphens, lowercase, alphanumeric only.
-
-Example:
-
-```bash
-localdev-helper.sh branch myapp feature/login
-# → https://feature-login.myapp.local on auto-assigned port
-```
-
-No new cert needed — the wildcard cert from `add` covers `*.myapp.local` subdomains.
-
-### db
-
-Shared Postgres database management via a `local-postgres` Docker container.
-
-```bash
-localdev-helper.sh db start              # Ensure container is running
-localdev-helper.sh db stop               # Stop container
-localdev-helper.sh db create <dbname>    # Create database
-localdev-helper.sh db drop <dbname> -f   # Drop database (requires --force)
-localdev-helper.sh db list               # List all databases with URLs
-localdev-helper.sh db url <dbname>       # Output connection string
-localdev-helper.sh db status             # Container and database status
-```
-
-Default configuration (override via environment variables):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `LOCALDEV_PG_IMAGE` | `postgres:17-alpine` | Docker image |
 | `LOCALDEV_PG_PORT` | `5432` | Host port |
-| `LOCALDEV_PG_USER` | `postgres` | Postgres user |
-| `LOCALDEV_PG_PASSWORD` | `localdev` | Postgres password |
-| `LOCALDEV_PG_DATA` | `~/.local-dev-proxy/pgdata` | Data directory |
+| `LOCALDEV_PG_USER` | `postgres` | User |
+| `LOCALDEV_PG_PASSWORD` | `localdev` | Password |
+| `LOCALDEV_PG_DATA` | `~/.local-dev-proxy/pgdata` | Data dir |
 
-Database names with hyphens are auto-converted to underscores for Postgres compatibility (e.g., `myapp-feature-xyz` becomes `myapp_feature_xyz`).
+Hyphens in DB names auto-converted to underscores.
 
-Connection string format: `postgresql://postgres:localdev@localhost:5432/{dbname}`
-
-### list
-
-Unified dashboard showing all local projects, URLs, cert status, process health, LocalWP sites, and shared Postgres.
+**list / status**
 
 ```bash
-localdev-helper.sh list
+localdev-helper.sh list    # Dashboard: NAME, URL, PORT, CERT, PROC, PROCESS
+localdev-helper.sh status  # Health: [OK] healthy [--] down [!!] missing [!?] partial
 ```
 
-Output columns: NAME, URL, PORT, CERT, PROC, PROCESS
-
-Legend: `[OK]` = healthy, `[--]` = down, `[!!]` = missing, `[!?]` = partial
-
-### status
-
-Infrastructure health check for all localdev components.
+## CLI — localhost-helper.sh (Legacy)
 
 ```bash
-localdev-helper.sh status
-```
-
-Checks: dnsmasq config and process, macOS resolver, Traefik conf.d and container, certificates per app, port health per app, LocalWP coexistence, shared Postgres.
-
-## CLI Reference — localhost-helper.sh (Legacy)
-
-The legacy helper provides port management and basic setup functions. For new projects, prefer `localdev-helper.sh`.
-
-```bash
-# Port management
-localhost-helper.sh check-port <port>     # Check availability, suggest alternative
-localhost-helper.sh find-port [start]     # Find next available port (default: 3000)
-localhost-helper.sh list-ports            # List common dev ports in use
-localhost-helper.sh kill-port <port>      # Kill process on port
-
-# DNS and proxy
-localhost-helper.sh setup-dns             # Configure dnsmasq (use localdev init instead)
-localhost-helper.sh setup-proxy           # Setup Traefik (use localdev init instead)
-localhost-helper.sh generate-cert <domain> # Generate mkcert cert
-
-# App management
+localhost-helper.sh check-port <port> | find-port [start] | list-ports | kill-port <port>
+localhost-helper.sh generate-cert <domain>
 localhost-helper.sh create-app <name> <domain> <port> [ssl] [type]
-
-# LocalWP MCP (port 8085)
-localhost-helper.sh start-mcp             # Start LocalWP MCP server
-localhost-helper.sh stop-mcp              # Stop LocalWP MCP server
-localhost-helper.sh test-mcp              # Test MCP connection
-localhost-helper.sh mcp-query "<sql>"     # Query WordPress database via MCP
-```
-
-## LocalWP Coexistence
-
-LocalWP manages WordPress sites with its own DNS entries in `/etc/hosts` (marked with `#Local Site`). The localdev system coexists safely:
-
-**How it works:**
-
-1. LocalWP adds entries like `192.168.95.100 mysite.local #Local Site` to `/etc/hosts`
-2. macOS resolves `/etc/hosts` before `/etc/resolver/local`
-3. dnsmasq wildcard only handles domains NOT in `/etc/hosts`
-4. `localdev add` checks for LocalWP collisions and rejects conflicting domains
-
-**Rules:**
-
-- Never manually add `.local` entries to `/etc/hosts` that conflict with localdev domains
-- LocalWP domains always take precedence — this is by design
-- Use `localdev list` to see both localdev and LocalWP sites in one dashboard
-- LocalWP sites are read-only in the dashboard (managed by LocalWP itself)
-
-**LocalWP sites.json**: `~/Library/Application Support/Local/sites.json` — the dashboard reads this for richer site data (PHP version, MySQL version, ports).
-
-## OrbStack / Docker Integration
-
-localdev uses Docker for Traefik and the shared Postgres container. It works with both Docker Desktop and OrbStack.
-
-**OrbStack specifics:**
-
-- OrbStack provides its own `.orb.local` domains for containers — these are separate from localdev's `.local` domains
-- Traefik runs as a Docker container and uses `host.docker.internal` to reach host-bound app ports
-- The `local-dev` Docker network is shared between Traefik and the Postgres container
-- OrbStack's lower memory footprint makes it preferred over Docker Desktop
-
-**Docker network:**
-
-```bash
-# Created automatically by localdev init or db start
-docker network create local-dev
-```
-
-All localdev containers (Traefik, Postgres) join the `local-dev` network. Project containers can also join this network for direct container-to-container communication.
-
-**Traefik Docker Compose** (`~/.local-dev-proxy/docker-compose.yml`):
-
-```yaml
-services:
-  traefik:
-    image: traefik:v3.3
-    container_name: local-traefik
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./conf.d:/etc/traefik/conf.d:ro
-      - ~/.local-ssl-certs:/certs:ro
-    networks:
-      - local-dev
-
-networks:
-  local-dev:
-    external: true
-```
-
-**Traefik dashboard**: `http://localhost:8080` (when Traefik is running).
-
-## Database Management Patterns
-
-### Per-Project Databases
-
-```bash
-# Create database for a project
-localdev db create myapp
-# → postgresql://postgres:localdev@localhost:5432/myapp
-
-# Use in your app's .env
-DATABASE_URL="$(localdev-helper.sh db url myapp)"
-```
-
-### Branch-Isolated Databases
-
-Create separate databases per feature branch to avoid schema conflicts:
-
-```bash
-# Create branch database
-localdev db create myapp-feature-auth
-# → postgresql://postgres:localdev@localhost:5432/myapp_feature_auth
-
-# When branch is merged, clean up
-localdev db drop myapp-feature-auth --force
-```
-
-### Project-Specific Postgres
-
-The shared Postgres is for convenience. Projects needing a specific Postgres version should use their own `docker-compose.yml`:
-
-```yaml
-services:
-  db:
-    image: postgres:15-alpine
-    ports:
-      - "5433:5432"  # Different host port to avoid conflict
-    environment:
-      POSTGRES_PASSWORD: dev
-    networks:
-      - local-dev
-
-networks:
-  local-dev:
-    external: true
-```
-
-## Branch Subdomain Workflow
-
-The branch subdomain system enables running multiple versions of an app simultaneously — useful for PR reviews, A/B testing, or parallel feature development.
-
-### Zero-Config Workflow (recommended)
-
-```bash
-# In a worktree — localdev run handles everything
-cd ~/Git/myapp-feature-user-auth/
-localdev-helper.sh run npm run dev
-# → Auto-registers myapp if needed
-# → Auto-creates branch subdomain feature-user-auth.myapp.local
-# → Sets PORT=3101 HOST=0.0.0.0
-# → Runs: npm run dev
-# → https://feature-user-auth.myapp.local just works
-```
-
-### Manual Workflow
-
-```bash
-# 1. Register the main app (one-time)
-localdev-helper.sh add myapp
-# → https://myapp.local on port 3100
-
-# 2. Create a branch subdomain for a feature
-localdev-helper.sh branch myapp feature/user-auth
-# → https://feature-user-auth.myapp.local on port 3101
-
-# 3. Start the branch version on the assigned port
-cd ~/Git/myapp-feature-user-auth/
-PORT=3101 npm run dev
-
-# 4. When done, remove the branch route
-localdev-helper.sh branch rm myapp feature-user-auth
-
-# 5. List all branches for an app
-localdev-helper.sh branch list myapp
-```
-
-### Integration with Git Worktrees
-
-Branch subdomains pair naturally with git worktrees. With `localdev run`, the worktree integration is automatic:
-
-```bash
-# Create worktree and start dev server — zero config
-cd ~/Git/myapp-feature-login/
-localdev-helper.sh run npm run dev
-# → Everything handled automatically
-```
-
-Manual approach:
-
-```bash
-# Create worktree for feature branch
-git worktree add ../myapp-feature-login feature/login
-
-# Register branch subdomain
-localdev-helper.sh branch myapp feature/login
-
-# Start the worktree's dev server on the assigned port
-cd ../myapp-feature-login
-PORT=$(localdev-helper.sh branch list myapp | grep feature-login | awk '{print $3}' | sed 's/port://') npm run dev
+localhost-helper.sh start-mcp | stop-mcp | test-mcp | mcp-query "<sql>"
 ```
 
 ## Stack-Specific Guidance
 
-Different frameworks bind to ports differently. After `localdev add` assigns a port, configure your app accordingly.
+| Stack | Pattern |
+|-------|---------|
+| **Next.js** | `PORT=3100 npm run dev` or `"dev": "next dev --port ${PORT:-3000}"` |
+| **Vite** | `npx vite --port 3100` or `server: { port: 3100 }` in `vite.config.ts` |
+| **Rails** | `rails server -p 3100` |
+| **Django** | `python manage.py runserver 0.0.0.0:3100` |
+| **Go** | `port := os.Getenv("PORT")` |
+| **Laravel** | `php artisan serve --port=3100` |
+| **Bun** | `PORT=3100 bun run dev` |
 
-### Next.js
+**Next.js stale lock (16+):** `rm -f .next/dev/lock && PORT=3100 npm run dev`
+Or: `"dev": "rm -f .next/dev/lock && next dev --port ${PORT:-3000}"`
 
-```bash
-# next dev uses PORT env var
-PORT=3100 npm run dev
+**Turborepo quirks:**
 
-# Or in package.json scripts
-"dev": "next dev --port ${PORT:-3000}"
+1. Port may be hardcoded in `apps/web/package.json` — match registry
+2. `allowedDevOrigins: ["myapp.local"]` required in `next.config.ts` (Next.js 15+)
+3. `with-env` loads `.env.local` from monorepo root — place `URL`/`DATABASE_URL` there
+4. Skip `localdev db start` if project has own `docker-compose.yml` on port 5432
+5. Stale lock: `rm -f apps/web/.next/dev/lock && pnpm dev:web`
 
-# Or .env.local
-PORT=3100
-```
+**Docker Compose projects:** Map to localdev port (`"3100:3000"`) and join `local-dev` network.
 
-**Stale lock file (Next.js 16+):** Next.js creates a file-based lock at `.next/dev/lock` when the dev server starts. If the process is killed ungracefully (`kill -9`, system restart, OOM, power loss), the lock file survives and blocks restart with `Unable to acquire lock`. Port-killing alone (`lsof -ti:PORT | xargs kill -9`) does not clean it up — the lock is file-based, not port-based.
+**LocalWP coexistence:** `localdev add` checks for `#Local Site` collisions and rejects conflicts. `localdev list` shows both. Sites config: `~/Library/Application Support/Local/sites.json`.
 
-```bash
-# Clean up stale lock before starting
-rm -f .next/dev/lock && PORT=3100 npm run dev
-
-# Recommended: add to package.json scripts for resilience
-"dev": "rm -f .next/dev/lock && next dev --port ${PORT:-3000}"
-```
-
-For monorepos where the Next.js app is in a subdirectory (e.g., `apps/web/`), the lock path is `apps/web/.next/dev/lock`. See the Turbostarter section below for the monorepo-specific pattern.
-
-### Vite (Vue, React, Svelte)
+## Database Patterns
 
 ```bash
-# CLI flag
-npx vite --port 3100
-
-# Or vite.config.ts
-export default defineConfig({
-  server: { port: 3100 }
-})
-
-# Or environment variable
-VITE_PORT=3100 npx vite --port $VITE_PORT
-```
-
-### Ruby on Rails
-
-```bash
-# CLI flag
-rails server -p 3100
-
-# Or Procfile.dev
-web: bin/rails server -p 3100
-```
-
-### Django
-
-```bash
-# CLI argument
-python manage.py runserver 0.0.0.0:3100
-```
-
-### Go (net/http)
-
-```go
-// Use the assigned port
-port := os.Getenv("PORT")
-if port == "" {
-    port = "3100"
-}
-http.ListenAndServe(":"+port, handler)
-```
-
-### PHP (Laravel)
-
-```bash
-# Artisan serve
-php artisan serve --port=3100
-
-# Or Laravel Valet (separate system, may conflict — prefer localdev)
-```
-
-### Bun
-
-```bash
-# Bun uses PORT env var
-PORT=3100 bun run dev
-
-# Or in bunfig.toml / code
-Bun.serve({ port: 3100 })
-```
-
-### Turbostarter / Turborepo Monorepo
-
-Turbostarter (and similar Turborepo-based monorepos) have specific quirks discovered during the webapp migration:
-
-**1. Port hardcoded in `apps/web/package.json`** (not via `PORT` env var):
-
-```json
-"scripts": {
-  "dev": "next dev --port 3100"
-}
-```
-
-When registering with localdev, use the same port that's hardcoded in the web app's `package.json`. If you need to change the port, update both the localdev registry and the `package.json` script.
-
-**2. `allowedDevOrigins` required in `next.config.ts`** (Next.js 15+):
-
-Next.js 15 blocks cross-origin requests by default. Add your `.local` domain to `allowedDevOrigins`:
-
-```typescript
-const config: NextConfig = {
-  allowedDevOrigins: [
-    "myapp.local",
-    "myapp.local:3000",
-    "localhost:3000",
-  ],
-  // ...
-};
-```
-
-Without this, browser requests from `https://myapp.local` will be blocked with a CORS error.
-
-**3. `with-env` script loads `.env.local` from monorepo root**:
-
-Turbostarter uses `dotenv -c --` (aliased as `with-env`) to inject environment variables:
-
-```bash
-# Root package.json
-"dev": "pnpm with-env turbo dev"
-"dev:web": "pnpm with-env pnpm --filter web dev"
-```
-
-Place your `URL` and `DATABASE_URL` in the root `.env.local`:
-
-```bash
-URL="https://myapp.local"
-NEXT_PUBLIC_URL="https://myapp.local"
-DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
-```
-
-**4. Postgres: project-specific container vs shared `local-postgres`**:
-
-Turbostarter projects typically include their own `docker-compose.yml` with a Postgres container. If port 5432 is already allocated by the project's container, `localdev db start` will fail with "port already allocated". This is expected — use the project's own Postgres container and skip `localdev db start`.
-
-```bash
-# Start project services (includes Postgres)
-pnpm services:start  # or: docker compose up -d
-
-# Verify connectivity
-docker exec <project>-db-1 psql -U <user> -d <db> -c '\dt'
-```
-
-**5. Start command for development**:
-
-```bash
-# From monorepo root — starts all apps via Turborepo
-pnpm dev
-
-# Or just the web app
-pnpm dev:web
-
-# Or directly in apps/web/
-cd apps/web && pnpm dev
-```
-
-**6. Stale lock file cleanup (Next.js 16+)**:
-
-The dev server lock at `apps/web/.next/dev/lock` survives ungraceful shutdowns and blocks restart with `Unable to acquire lock`. Add lock cleanup to your start commands:
-
-```bash
-# Recommended: clean lock before starting (monorepo root)
-rm -f apps/web/.next/dev/lock && pnpm dev:web
-
-# Or add to apps/web/package.json for automatic cleanup
-"dev": "rm -f .next/dev/lock && next dev --port 3100"
-
-# Terminal profile / Tabby start command (includes lock cleanup + port kill)
-rm -f apps/web/.next/dev/lock; lsof -ti:3100 | xargs kill -9; pnpm dev:web
-```
-
-### Docker Compose Projects
-
-For projects using Docker Compose, expose the app port and let Traefik route to it:
-
-```yaml
-services:
-  app:
-    build: .
-    ports:
-      - "3100:3000"  # Map to localdev-assigned port
-    networks:
-      - local-dev
-
-networks:
-  local-dev:
-    external: true
+localdev db create myapp && DATABASE_URL="$(localdev-helper.sh db url myapp)"
+localdev db create myapp-feature-auth   # branch-isolated (avoid schema conflicts)
+localdev db drop myapp-feature-auth --force   # cleanup after merge
+# Custom Postgres version: own docker-compose.yml on port 5433:5432, join local-dev network
 ```
 
 ## Troubleshooting
 
-### DNS Resolution
-
-**Symptom**: `https://myapp.local` doesn't resolve in browser (but `dig myapp.local @127.0.0.1` works).
-
-**Most likely cause**: Missing `/etc/hosts` entry. macOS sends `.local` queries to mDNS before consulting `/etc/resolver/local`, so dnsmasq alone is insufficient for browsers.
+**DNS** — `https://myapp.local` doesn't resolve:
 
 ```bash
-# Step 1: Check /etc/hosts entry exists (REQUIRED for browsers)
-grep 'myapp.local' /etc/hosts
-# Should show: 127.0.0.1 myapp.local *.myapp.local # localdev: myapp
-
-# Step 2: If missing, add it
-localdev-helper.sh add myapp  # Re-running add is safe (idempotent)
-
-# Step 3: Flush macOS DNS cache
+grep 'myapp.local' /etc/hosts   # expected: 127.0.0.1 myapp.local *.myapp.local # localdev: myapp
+localdev-helper.sh add myapp    # idempotent — safe to re-run
 sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder
-
-# Step 4: Verify resolution via system resolver
-dscacheutil -q host -a name myapp.local
-# Should show: ip_address: 127.0.0.1
-
-# Optional: verify dnsmasq works for CLI tools
-dig myapp.local @127.0.0.1
-# Should return: 127.0.0.1
+dscacheutil -q host -a name myapp.local   # should show ip_address: 127.0.0.1
+# LocalWP conflict: check /etc/hosts for #Local Site entry on same domain
 ```
 
-**Why `dig myapp.local` works but browser doesn't**: `dig` without `@127.0.0.1` uses the system resolver which may hit mDNS for `.local`. `dig @127.0.0.1` queries dnsmasq directly. Browsers use the system resolver, not dnsmasq directly.
-
-**LocalWP conflict**: If a domain resolves to a LocalWP IP instead of 127.0.0.1, check `/etc/hosts` for a conflicting `#Local Site` entry.
-
-### Certificate Issues
-
-**Symptom**: Browser shows "not secure" or certificate error.
+**Certificates:**
 
 ```bash
-# Check cert files exist
-ls -la ~/.local-ssl-certs/myapp.local+1.pem
-ls -la ~/.local-ssl-certs/myapp.local+1-key.pem
-
-# Verify mkcert CA is installed
-mkcert -install
-
-# Regenerate cert
+ls -la ~/.local-ssl-certs/myapp.local+1.pem && mkcert -install
 cd ~/.local-ssl-certs && mkcert myapp.local "*.myapp.local"
-
-# Check cert validity
-openssl x509 -in ~/.local-ssl-certs/myapp.local+1.pem -text -noout | grep -A2 "Validity"
-
-# Verify Traefik can read the cert
 docker exec local-traefik ls /certs/
 ```
 
-**Common cause**: mkcert CA not installed in system trust store. Run `mkcert -install` (requires sudo on first run).
-
-### Port Conflicts
-
-**Symptom**: "address already in use" or app won't start.
+**Port conflicts:**
 
 ```bash
-# Check what's using a port
-lsof -i :3100
-
-# Check the port registry
-cat ~/.local-dev-proxy/ports.json | jq '.apps'
-
-# Find next available port
-localdev-helper.sh add myapp  # Auto-assigns from 3100-3999
-
-# Kill a process on a port (use with caution)
-localhost-helper.sh kill-port 3100
-
-# Check all registered ports and their health
-localdev-helper.sh list
+lsof -i :3100 && cat ~/.local-dev-proxy/ports.json | jq '.apps'
+localhost-helper.sh kill-port 3100 && localdev-helper.sh list
 ```
 
-**Common cause**: A previous dev server didn't shut down cleanly. Check with `lsof` and kill the orphaned process.
-
-### Next.js Stale Lock File
-
-**Symptom**: `Unable to acquire lock` when starting `next dev`, even after killing the port process.
-
-**Cause**: Next.js 16+ creates a file-based lock at `.next/dev/lock`. Ungraceful shutdowns (`kill -9`, system restart, OOM) leave the lock file behind. Killing the port process does not remove it.
+**Traefik:**
 
 ```bash
-# Fix: remove the stale lock file
-rm -f .next/dev/lock
-
-# For monorepos (e.g., Turbostarter)
-rm -f apps/web/.next/dev/lock
-
-# Then start normally
-npm run dev
-```
-
-**Prevention**: Add `rm -f .next/dev/lock &&` to your dev script in `package.json`. See the Next.js and Turbostarter sections above for recommended patterns.
-
-### Traefik Issues
-
-**Symptom**: Domain resolves but connection refused or 404.
-
-```bash
-# Check Traefik is running
 docker ps | grep local-traefik
-
-# Start Traefik
-cd ~/.local-dev-proxy && docker compose up -d
-
-# Check Traefik logs
-docker logs local-traefik --tail 50
-
-# Verify route file exists
-ls ~/.local-dev-proxy/conf.d/myapp.yml
-
-# Check Traefik dashboard for route status
-# Open http://localhost:8080 in browser
-
-# Restart Traefik (picks up all conf.d changes)
-cd ~/.local-dev-proxy && docker compose restart
+cd ~/.local-dev-proxy && docker compose up -d && docker logs local-traefik --tail 50
+ls ~/.local-dev-proxy/conf.d/myapp.yml && docker compose restart
 ```
 
-**Common cause**: Traefik not running, or the app isn't listening on the registered port. Traefik routes to `host.docker.internal:{port}` — the app must be listening on that port on the host.
-
-### Shared Postgres
-
-**Symptom**: Can't connect to database.
+**Shared Postgres:**
 
 ```bash
-# Check container status
-localdev-helper.sh db status
-
-# Start if not running
-localdev-helper.sh db start
-
-# Check connectivity
+localdev-helper.sh db status && localdev-helper.sh db start
 docker exec local-postgres pg_isready -U postgres
-
-# View logs
-docker logs local-postgres --tail 20
-
-# Test connection from host
 psql "postgresql://postgres:localdev@localhost:5432/postgres" -c "SELECT 1"
-```
-
-**Common cause**: Container stopped or port 5432 is used by a system Postgres installation. Change the port with `LOCALDEV_PG_PORT=5433 localdev-helper.sh db start`.
-
-## Prerequisites
-
-Install required tools:
-
-```bash
-# macOS (Homebrew)
-brew install dnsmasq mkcert
-
-# Install mkcert CA into system trust store (one-time)
-mkcert -install
-
-# Docker: install OrbStack (preferred) or Docker Desktop
-brew install orbstack
-```
-
-Then run the one-time setup:
-
-```bash
-localdev-helper.sh init
+# Port conflict: LOCALDEV_PG_PORT=5433 localdev-helper.sh db start
 ```
 
 ## File Locations
 
-| Path | Purpose |
-|------|---------|
-| `~/.local-dev-proxy/` | Traefik config, port registry, Postgres data |
-| `~/.local-dev-proxy/traefik.yml` | Traefik static config |
-| `~/.local-dev-proxy/docker-compose.yml` | Traefik Docker Compose |
-| `~/.local-dev-proxy/conf.d/` | Per-app Traefik route files |
-| `~/.local-dev-proxy/ports.json` | Port registry (apps + branches) |
-| `~/.local-dev-proxy/pgdata/` | Shared Postgres data directory |
-| `~/.local-dev-proxy/backup/` | Backups from init migration |
-| `~/.local-ssl-certs/` | mkcert certificate and key files |
-| `/etc/resolver/local` | macOS resolver for `.local` domains |
-| `$(brew --prefix)/etc/dnsmasq.conf` | dnsmasq configuration |
+All under `~/.local-dev-proxy/`: `traefik.yml` (static config), `docker-compose.yml`, `conf.d/` (per-app routes, hot-reloaded), `ports.json` (registry), `pgdata/` (Postgres data), `backup/` (init migration). Certs: `~/.local-ssl-certs/`. System: `/etc/resolver/local`, `$(brew --prefix)/etc/dnsmasq.conf`.
 
-## Legacy Context
+**Traefik Docker Compose** — `~/.local-dev-proxy/docker-compose.yml`: `traefik:v3.3` container (`local-traefik`), ports 80/443/8080, mounts `traefik.yml`, `conf.d/`, `~/.local-ssl-certs/` read-only, on `local-dev` external network.
 
-The `localhost.md` file in this directory is a redirect stub pointing here. The legacy `localhost-helper.sh` commands are documented in the CLI Reference section above.
+## Legacy vs Current
 
-Key differences between legacy and current:
+`localhost-helper.sh` (legacy): ports 3000-9999, single `dynamic.yml`, Traefik v2.10, no port registry/branch subdomains/db management/LocalWP detection, manual init. `localdev-helper.sh` (current): ports 3100-3999, `conf.d/` hot-reload, Traefik v3.3, `ports.json` + collision detection, `branch`/`db` commands, `sites.json` + `/etc/hosts` LocalWP check, single `init` command.
 
-| Aspect | localhost-helper.sh (legacy) | localdev-helper.sh (current) |
-|--------|------------------------------|------------------------------|
-| Port range | 3000-9999 | 3100-3999 |
-| Traefik config | Single `dynamic.yml` | `conf.d/` directory (hot-reload) |
-| Traefik version | v2.10 | v3.3 |
-| Port registry | None (manual tracking) | `ports.json` with collision detection |
-| Branch subdomains | Not supported | `branch` command with auto-port |
-| Database management | Not supported | `db` command (shared Postgres) |
-| LocalWP detection | Basic directory check | `sites.json` parsing + `/etc/hosts` check |
-| Collision detection | None | Full (LocalWP, registry, OS port) |
-| Init automation | Manual steps | Single `init` command |
+## Tool-Specific: App Store Connect (asc-web)
+
+```bash
+# asc web-server binds --port AND --port+1 — leave gap of 3+
+localdev-helper.sh add asc-web && localdev-helper.sh add asc-editor 3112
+ASC_PORT=$(jq -r '.apps["asc-web"].port' ~/.local-dev-proxy/ports.json)
+nohup asc web-server --port "$ASC_PORT" > /tmp/asc-web.log 2>&1 &
+EDITOR_PORT=$(jq -r '.apps["asc-editor"].port' ~/.local-dev-proxy/ports.json)
+nohup npx -y http-server ~/.asc/web/homepage -p "$EDITOR_PORT" --silent > /tmp/asc-editor.log 2>&1 &
+# → https://asc-web.local | https://asc-editor.local
+```

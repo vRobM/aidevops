@@ -16,8 +16,10 @@ import { loadAgentIndex, applyAgentMcpTools } from "./agent-loader.mjs";
 import { validateReturnStatements, validatePositionalParams } from "./validators.mjs";
 import { runMarkdownQualityPipeline } from "./quality-pipeline.mjs";
 import { createTtsrHooks } from "./ttsr.mjs";
-import { createPoolAuthHook, createPoolTool, initPoolAuth, registerPoolProvider } from "./oauth-pool.mjs";
+import { createPoolAuthHook, createOpenAIPoolAuthHook, createCursorPoolAuthHook, createPoolTool, initPoolAuth, registerPoolProvider, getAccounts } from "./oauth-pool.mjs";
 import { createProviderAuthHook } from "./provider-auth.mjs";
+import { startCursorProxy, registerCursorProvider, getCursorProxyPort } from "./cursor-proxy.mjs";
+import { startGoogleProxy, registerGoogleProvider, getGoogleProxyPort } from "./google-proxy.mjs";
 
 const HOME = homedir();
 const AGENTS_DIR = join(HOME, ".aidevops", "agents");
@@ -365,12 +367,74 @@ async function configHook(config) {
   // --- OAuth pool: clean up stale provider entries (t1543, t1548) ---
   const poolCleaned = registerPoolProvider(config);
 
+  // --- Cursor gRPC proxy: register provider with discovered models (t1551) ---
+  let cursorModelsRegistered = 0;
+  const cursorPort = getCursorProxyPort();
+  if (cursorPort) {
+    try {
+      // Re-import to get the latest models (may have been discovered after config hook first ran)
+      const { getCursorModels } = await import("./cursor/models.js");
+      const { getAccounts: getPoolAccounts, ensureValidToken: ensureToken } = await import("./oauth-pool.mjs");
+      const accounts = getPoolAccounts("cursor");
+      let models = [];
+
+      // Try to get models from cache or discover them
+      if (accounts.length > 0) {
+        const account = accounts.find((a) => a.status === "active");
+        if (account) {
+          const token = await ensureToken("cursor", account);
+          if (token) {
+            models = await getCursorModels(token);
+          }
+        }
+      }
+
+      if (models.length > 0 && registerCursorProvider(config, cursorPort, models)) {
+        cursorModelsRegistered = models.length;
+      }
+    } catch (err) {
+      // Non-fatal — cursor models just won't appear in the picker
+      console.error(`[aidevops] Config hook: cursor model registration failed: ${err.message}`);
+    }
+  }
+
+  // --- Google proxy: register provider with discovered models (issue #5622) ---
+  let googleModelsRegistered = 0;
+  const googlePort = getGoogleProxyPort();
+  if (googlePort) {
+    try {
+      const { discoverGoogleModels } = await import("./google-proxy.mjs");
+      const { getAccounts: getPoolAccounts, ensureValidToken: ensureToken } = await import("./oauth-pool.mjs");
+      const accounts = getPoolAccounts("google");
+      let models = [];
+
+      if (accounts.length > 0) {
+        const account = accounts.find((a) => a.status === "active");
+        if (account) {
+          const token = await ensureToken("google", account);
+          if (token) {
+            models = await discoverGoogleModels(token);
+          }
+        }
+      }
+
+      if (models.length > 0 && registerGoogleProvider(config, googlePort, models)) {
+        googleModelsRegistered = models.length;
+      }
+    } catch (err) {
+      // Non-fatal — Google models just won't appear in the picker
+      console.error(`[aidevops] Config hook: Google model registration failed: ${err.message}`);
+    }
+  }
+
   // Silent unless something was actually changed (avoids TUI flash on startup)
   const parts = [];
   if (agentsInjected > 0) parts.push(`${agentsInjected} agents`);
   if (mcpsRegistered > 0) parts.push(`${mcpsRegistered} MCPs`);
   if (agentToolsUpdated > 0) parts.push(`${agentToolsUpdated} agent tool perms`);
   if (poolCleaned > 0) parts.push(`cleaned ${poolCleaned} stale pool provider${poolCleaned === 1 ? "" : "s"}`);
+  if (cursorModelsRegistered > 0) parts.push(`${cursorModelsRegistered} Cursor models`);
+  if (googleModelsRegistered > 0) parts.push(`${googleModelsRegistered} Google models`);
 
   if (parts.length > 0) {
     console.error(`[aidevops] Config hook: ${parts.join(", ")}`);
@@ -1039,7 +1103,7 @@ const {
  *
  * Provides:
  * 1. Config hook — lightweight agent index + MCP server registration (t1040)
- * 2. Custom tools — aidevops CLI, memory, pre-edit check, quality check, hook installer
+ * 2. Custom tools — aidevops CLI, memory (unified recall/store), pre-edit check, OAuth pool (4 tools total)
  * 3. Quality hooks — full pre-commit pipeline (ShellCheck, return statements,
  *    positional params, secrets scan, markdown lint) on Write/Edit operations
  * 4. Shell environment — aidevops paths and variables
@@ -1059,6 +1123,19 @@ const {
  * 9. OpenAI Pro pool — multi-account rotation for ChatGPT Plus/Pro accounts (t1548)
  *    Same token injection architecture as Anthropic pool. Adds "openai-pool" provider
  *    for account management and injects tokens into the built-in "openai" provider.
+ * 10. Cursor Pro pool — multi-account rotation for Cursor Pro accounts (t1549, t1551)
+ *    Extracts credentials from Cursor IDE's local state DB or cursor-agent auth.
+ *    Manages a gRPC proxy (vendored from opencode-cursor-oauth) that translates
+ *    OpenAI-compatible requests to Cursor's protobuf/HTTP2 Connect protocol via
+ *    a Node.js H2 bridge subprocess. Supports true streaming, tool calling, and
+ *    model discovery via gRPC. Adds "cursor-pool" provider for account management
+ *    with LRU rotation and 429 failover. Bypasses OpenCode's broken auth hooks.
+ * 11. Google proxy — auth-translating HTTP proxy for Google Generative AI (issue #5622)
+ *    Bridges OAuth pool tokens to OpenCode's built-in Google provider (@ai-sdk/google).
+ *    The SDK sends x-goog-api-key but pool tokens are OAuth Bearer — the proxy
+ *    rewrites headers (strips x-goog-api-key, adds Authorization: Bearer).
+ *    Discovers models from the API on startup. Supports SSE streaming for
+ *    streamGenerateContent. Pool rotation on 429. Port 32124 (fixed).
  *
  * MCP registration (Phase 2, t008.2):
  * - Registers all known MCP servers from a data-driven registry
@@ -1073,20 +1150,59 @@ export async function AidevopsPlugin({ directory, client }) {
   // Phase 6: Initialise LLM observability (t1308)
   initObservability();
 
-  // Phase 7: OAuth pool — seed auth entries so providers appear in connect dialog (t1543, t1548)
-  await initPoolAuth(client);
+  // Phase 8: Cursor gRPC proxy (t1551)
+  // Started after config hook runs (which calls initPoolAuth), so pool tokens are seeded.
+  // The proxy translates OpenAI-compatible requests to Cursor's protobuf/HTTP2 protocol.
+  let cursorProxyResult = null;
+  const cursorAccounts = getAccounts("cursor");
+  if (cursorAccounts.length > 0) {
+    try {
+      cursorProxyResult = await startCursorProxy(client);
+      if (cursorProxyResult) {
+        console.error(`[aidevops] Cursor gRPC proxy started on port ${cursorProxyResult.port} with ${cursorProxyResult.models.length} models`);
+      }
+    } catch (err) {
+      console.error(`[aidevops] Cursor gRPC proxy failed to start: ${err.message}`);
+    }
+  }
 
-  // Phase 7b: OAuth pool tools (t1543, t1548)
-  const baseTools = createTools(SCRIPTS_DIR, run, {
-    runShellQualityPipeline,
-    runMarkdownQualityPipeline,
-    scanForSecrets,
-  });
+  // Phase 9: Google auth-translating proxy (issue #5622)
+  // Bridges OAuth pool tokens to OpenCode's built-in Google provider (@ai-sdk/google).
+  // The SDK sends x-goog-api-key but our pool has OAuth Bearer tokens — the proxy
+  // translates between the two auth methods (HTTP-to-HTTP header rewriting).
+  let googleProxyResult = null;
+  const googleAccounts = getAccounts("google");
+  if (googleAccounts.length > 0) {
+    try {
+      googleProxyResult = await startGoogleProxy(client);
+      if (googleProxyResult) {
+        // Set placeholder API key so @ai-sdk/google doesn't reject requests
+        // with "missing key" before they reach the proxy. The proxy handles
+        // real auth via OAuth Bearer tokens from the pool.
+        if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+          process.env.GOOGLE_GENERATIVE_AI_API_KEY = "google-pool-proxy";
+        }
+        console.error(`[aidevops] Google proxy started on port ${googleProxyResult.port} with ${googleProxyResult.models.length} models`);
+      }
+    } catch (err) {
+      console.error(`[aidevops] Google proxy failed to start: ${err.message}`);
+    }
+  }
+
+  // Phase 7b: OAuth pool tools (t1543, t1548, t1549)
+  // Note: pipelines arg omitted — quality checks run via tool.execute.before hook, not LLM-callable tools.
+  const baseTools = createTools(SCRIPTS_DIR, run);
   baseTools["model-accounts-pool"] = createPoolTool(client);
 
   return {
-    // Phase 1+2: Lightweight agent index + MCP registration
-    config: async (config) => configHook(config),
+    // Phase 1+2+7: Agent index, MCP registration, and OAuth pool injection.
+    // initPoolAuth runs here (inside OpenCode's config phase) so tokens are
+    // written to auth.json before the first provider call — fixes headless
+    // dispatch race condition where injection arrived after the first API call.
+    config: async (config) => {
+      await initPoolAuth(client);
+      return configHook(config);
+    },
 
     // Phase 1+7: Custom tools (extracted to tools.mjs) + pool management (t1543)
     tool: baseTools,
@@ -1106,8 +1222,26 @@ export async function AidevopsPlugin({ directory, client }) {
     // Phase 6: LLM observability — capture assistant message metadata (t1308)
     event: async (input) => handleEvent(input),
 
-    // Phase 7: OAuth multi-account pool (t1543)
-    auth: createPoolAuthHook(client),
+    // Phase 7: OAuth multi-account pool + provider auth (t1543, t1548, t1549)
+    //
+    // OpenCode only supports a single auth hook. We must merge:
+    //   - createPoolAuthHook: provides `methods` (OAuth flow UI for adding accounts)
+    //   - createProviderAuthHook: provides `loader` (custom fetch with Bearer auth,
+    //     beta headers, tool prefixing, 401/403/429 recovery)
+    //
+    // The hook MUST use provider: "anthropic" to intercept the built-in provider.
+    // Using "anthropic-pool" only registers a custom provider for the management
+    // UI — it doesn't intercept actual API calls, causing OpenCode to send the
+    // OAuth token as x-api-key (wrong) instead of Authorization: Bearer (correct).
+    auth: (() => {
+      const poolHook = createPoolAuthHook(client);
+      const providerHook = createProviderAuthHook(client);
+      return {
+        provider: "anthropic", // MUST be "anthropic" to intercept the built-in provider
+        methods: poolHook.methods, // OAuth flow UI from pool hook
+        loader: providerHook.loader, // Custom fetch with Bearer auth from provider hook
+      };
+    })(),
 
     // Compaction context (includes OMOC state when detected)
     "experimental.session.compacting": async (input, output) =>

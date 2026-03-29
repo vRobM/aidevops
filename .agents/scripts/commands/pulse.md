@@ -45,47 +45,165 @@ The wrapper already fetched all open PRs and issues. The data is in your prompt 
 do NOT run `gh pr list` or `gh issue list` (that was the root cause of the "only processes
 first repo" bug).
 
-### 3. Merge ready PRs (free — no worker slot needed)
+### 3. Approve and merge ready PRs (free — no worker slot needed)
 
-For each PR with green CI + review gate passed + maintainer author:
+For each PR with green CI + all status checks passed + collaborator author:
 
 ```bash
+# Auto-approve collaborator PRs to satisfy required_approving_review_count (GH#10522)
+# ONLY for PRs authored by collaborators (admin/maintain/write permission).
+# External contributor PRs are NEVER auto-approved — they require manual maintainer review.
+source ~/.aidevops/agents/scripts/pulse-wrapper.sh
+approve_collaborator_pr NUMBER SLUG AUTHOR
+
+# Then merge
 gh pr merge NUMBER --repo SLUG --squash
 ```
 
-Check external contributor gate before ANY merge (see Pre-merge checks below).
+Check external contributor gate before ANY approve/merge (see Pre-merge checks below).
 
 ### 4. Dispatch workers for open issues
 
 For each unassigned, non-blocked issue with no open PR, no active worker, and **no `needs-maintainer-review` label**:
 
 ```bash
-# Dedup guard (MANDATORY — all three checks required)
+# Atomic dispatch (GH#12436 — dedup+assign+launch in single call, cannot be skipped)
 source ~/.aidevops/agents/scripts/pulse-wrapper.sh
 RUNNER_USER=$(gh api user --jq '.login' 2>/dev/null || whoami)
 
-# 1. Local process dedup (same machine only)
-if has_worker_for_repo_issue NUMBER SLUG; then continue; fi
-if ~/.aidevops/agents/scripts/dispatch-dedup-helper.sh is-duplicate "Issue #NUMBER: TITLE"; then continue; fi
-
-# 2. Cross-machine assignee dedup (checks GitHub — visible to ALL runners)
-# This is the primary guard against duplicate dispatch across machines.
-# If another runner already assigned themselves, skip this issue.
-if ~/.aidevops/agents/scripts/dispatch-dedup-helper.sh is-assigned NUMBER SLUG "$RUNNER_USER"; then continue; fi
-
-# Assign and dispatch
-gh issue edit NUMBER --repo SLUG --add-assignee "$RUNNER_USER" --add-label "status:queued" 2>/dev/null || true
-
-~/.aidevops/agents/scripts/headless-runtime-helper.sh run \
-  --role worker \
-  --session-key "issue-NUMBER" \
-  --dir PATH \
-  --title "Issue #NUMBER: TITLE" \
-  --prompt "/full-loop Implement issue #NUMBER (URL) -- DESCRIPTION" &
-sleep 2
+# dispatch_with_dedup runs all 7 dedup layers, assigns the issue, launches the
+# worker, and records in the dispatch ledger — atomically. The LLM cannot skip
+# the dedup guard because it is inside the function. Returns 0=dispatched,
+# 1=blocked by dedup, 2=dispatch error.
+dispatch_with_dedup NUMBER SLUG "Issue #NUMBER: TITLE" "TASK_ID: TITLE" "$RUNNER_USER" PATH \
+  "/full-loop Implement issue #NUMBER (URL) -- DESCRIPTION" || continue
 ```
 
 Repeat until `AVAILABLE` slots are filled or no dispatchable issues remain.
+
+### 4.5. Dispatch triage reviews for needs-maintainer-review issues
+
+After filling implementation worker slots, check the pre-fetched "Needs Maintainer Review — Triage Status" section. For each issue marked **needs-review** (no agent review comment yet), dispatch an opus-tier triage review worker. These are operational (no code changes) and use `/review-issue-pr` directly.
+
+```bash
+# Only dispatch if worker slots are available
+# Max 2 triage reviews per pulse cycle (opus-tier, expensive)
+TRIAGE_REVIEW_COUNT=0
+TRIAGE_REVIEW_MAX=2
+
+# For each needs-review issue from the pre-fetched triage status:
+if [[ "$AVAILABLE" -gt 0 && "$TRIAGE_REVIEW_COUNT" -lt "$TRIAGE_REVIEW_MAX" ]]; then
+  RESOLVED_MODEL=$(~/.aidevops/agents/scripts/model-availability-helper.sh resolve opus)
+
+  ~/.aidevops/agents/scripts/headless-runtime-helper.sh run \
+    --role worker \
+    --session-key "triage-review-NUMBER" \
+    --dir PATH \
+    --model "$RESOLVED_MODEL" \
+    --title "Triage review: Issue #NUMBER" \
+    --prompt "/review-issue-pr NUMBER" &
+  sleep 2
+
+  TRIAGE_REVIEW_COUNT=$((TRIAGE_REVIEW_COUNT + 1))
+  AVAILABLE=$((AVAILABLE - 1))
+fi
+```
+
+Skip triage reviews when:
+
+- All worker slots are occupied (implementation work takes priority)
+- The issue was created less than 5 minutes ago (give the author time to add context)
+- The maintainer has already commented on the issue (they're already engaged)
+
+### 4.6. Scan status:needs-info issues for contributor replies
+
+Check the pre-fetched "Needs Info — Contributor Reply Status" section. For each issue marked **replied** (contributor commented after the label was applied), relabel to `needs-maintainer-review` so it re-enters the triage pipeline for re-evaluation.
+
+```bash
+# For each replied issue from the pre-fetched needs-info status:
+REPO=$(echo "$SLUG" | cut -d/ -f1-2)
+MAINTAINER=$(jq -r --arg slug "$SLUG" \
+  '.[] | select(.slug == $slug) | .maintainer // empty' "$REPOS_JSON")
+
+gh issue edit <number> --repo "$SLUG" \
+  --remove-label "status:needs-info" \
+  --add-label "needs-maintainer-review"
+gh issue comment <number> --repo "$SLUG" \
+  --body "Contributor replied to the information request. Relabeled to \`needs-maintainer-review\` for re-evaluation."
+```
+
+This is a lightweight label transition — no worker dispatch, no slots consumed. The issue will be picked up by the triage review pipeline (step 4.5) on the next cycle.
+
+**Skip when:**
+
+- No issues have `status:needs-info` label
+- The contributor has not commented since the label was applied (pre-fetched status shows **waiting**)
+- The only new comments are from bots or the maintainer (not the original issue author)
+
+### 4.7. Dispatch FOSS contribution workers when idle capacity exists (t1702)
+
+After filling all managed-repo worker slots (implementation, triage reviews, needs-info relabeling), check the pre-fetched "FOSS Contribution Scan" section. If eligible FOSS repos exist and worker slots remain, dispatch contribution workers.
+
+**When to dispatch FOSS contributions:**
+
+- All managed-repo issues have been dispatched or are at capacity
+- Worker slots are still available (`AVAILABLE > 0`)
+- The pre-fetched FOSS scan shows eligible repos (`eligible_count > 0`)
+- Daily token budget has headroom (check the budget line in the scan section)
+
+**FOSS contributions are the lowest priority work** — below merges, CI fixes, implementation dispatches, triage reviews, quality-debt, and simplification-debt. Only dispatch when genuinely idle.
+
+**Dispatch flow:**
+
+```bash
+# Max FOSS dispatches per cycle (from pre-fetched state)
+FOSS_DISPATCH_COUNT=0
+FOSS_DISPATCH_MAX=2  # Read from pre-fetched "Max FOSS dispatches per cycle" line
+
+# For each eligible FOSS repo from the pre-fetched scan:
+if [[ "$AVAILABLE" -gt 0 && "$FOSS_DISPATCH_COUNT" -lt "$FOSS_DISPATCH_MAX" ]]; then
+  # Pre-dispatch eligibility check (budget + rate limit may have changed)
+  if ~/.aidevops/agents/scripts/foss-contribution-helper.sh check <slug> >/dev/null 2>&1; then
+    # Scan for a suitable issue in the FOSS repo
+    LABELS_FILTER=$(jq -r --arg slug "<slug>" \
+      '.initialized_repos[] | select(.slug == $slug) | .foss_config.labels_filter // ["help wanted", "good first issue", "bug"] | join(",")' \
+      ~/.config/aidevops/repos.json)
+    FOSS_ISSUE=$(gh issue list --repo <slug> --state open \
+      --label "${LABELS_FILTER%%,*}" --limit 1 \
+      --json number,title --jq '.[0] | "\(.number)|\(.title)"' 2>/dev/null) || FOSS_ISSUE=""
+
+    if [[ -n "$FOSS_ISSUE" ]]; then
+      FOSS_ISSUE_NUM="${FOSS_ISSUE%%|*}"
+      FOSS_ISSUE_TITLE="${FOSS_ISSUE#*|}"
+      FOSS_REPO_PATH=$(jq -r --arg slug "<slug>" \
+        '.initialized_repos[] | select(.slug == $slug) | .path' \
+        ~/.config/aidevops/repos.json)
+
+      ~/.aidevops/agents/scripts/headless-runtime-helper.sh run \
+        --role worker \
+        --session-key "foss-<slug>-${FOSS_ISSUE_NUM}" \
+        --dir "$FOSS_REPO_PATH" \
+        --title "FOSS: <slug> #${FOSS_ISSUE_NUM}: ${FOSS_ISSUE_TITLE}" \
+        --prompt "/full-loop Implement issue #${FOSS_ISSUE_NUM} (https://github.com/<slug>/issues/${FOSS_ISSUE_NUM}) -- ${FOSS_ISSUE_TITLE}. This is a FOSS contribution. Include AI disclosure note in the PR if disclosure:true in repos.json foss_config. After completion, run: foss-contribution-helper.sh record <slug> <tokens_used>" &
+      sleep 2
+
+      FOSS_DISPATCH_COUNT=$((FOSS_DISPATCH_COUNT + 1))
+      AVAILABLE=$((AVAILABLE - 1))
+    fi
+  fi
+fi
+```
+
+**Concurrency cap:** Max `FOSS_MAX_DISPATCH_PER_CYCLE` (default 2) FOSS workers per pulse cycle. FOSS repos are external — keep the footprint small and respectful.
+
+**Skip FOSS dispatch when:**
+
+- All worker slots are occupied with managed-repo work (FOSS never preempts)
+- Daily token budget is exhausted (the pre-fetched scan shows 0 remaining)
+- No eligible FOSS repos in the scan (all blocklisted, rate-limited, or budget-exceeded)
+- The FOSS repo has no open issues matching the configured `labels_filter`
+
+**FOSS response dispatch:** When the pre-fetched "External Contributions" section shows items needing reply on `foss: true` repos, prioritize responding to maintainer feedback on our existing PRs before opening new contributions. Use `contribution-watch-helper.sh status` to identify which repos need attention.
 
 ### 5. Record initial dispatch success
 
@@ -128,9 +246,12 @@ After the initial dispatch, enter a monitoring loop. Each cycle:
    ```
 
 4. **If slots are open**: check for mergeable PRs (free), then dispatch workers for the
-   highest-priority open issues. Use the same dedup guards and dispatch commands as the
-   initial dispatch. Re-fetch issue state with targeted `gh` calls only for repos where
-   you need to dispatch (not a full re-fetch of all repos).
+   highest-priority open issues, then dispatch triage reviews for unreviewed
+   `needs-maintainer-review` issues (same rules as Step 4.5), then scan `status:needs-info`
+   issues for contributor replies (same rules as Step 4.6), then dispatch FOSS contribution
+   workers if idle capacity remains (same rules as Step 4.7). Use the same dedup guards
+   and dispatch commands as the initial dispatch. Re-fetch issue state with targeted `gh`
+   calls only for repos where you need to dispatch (not a full re-fetch of all repos).
 
 5. **If fully staffed**: log it, mark the cycle todo complete, continue to next cycle.
 
@@ -179,6 +300,7 @@ Read adaptive queue mode from pre-fetched state (PULSE_QUEUE_MODE). In `pr-heavy
 7. `quality-debt` issues (unactioned review feedback from merged PRs)
 8. `simplification-debt` issues (approved simplification opportunities)
 9. Oldest issues
+10. FOSS contributions (t1702) — only when all managed-repo work is dispatched and idle capacity exists
 
 ## PRs — Merge, Fix, or Flag
 
@@ -188,15 +310,19 @@ Before merging ANY PR:
 
 1. **External contributor gate (MANDATORY).** Check author permission via `gh api -i "repos/SLUG/collaborators/AUTHOR/permission"`. Only HTTP 200 with `admin`/`maintain`/`write` = maintainer, safe to merge. External contributors or API failures → use `check_external_contributor_pr` / `check_permission_failure_pr` from `pulse-wrapper.sh`. NEVER auto-merge external PRs.
 
-2. **Workflow file guard.** Use `check_workflow_merge_guard` from `pulse-wrapper.sh`. If the PR modifies `.github/workflows/` and the token lacks `workflow` scope, the merge will fail. The helper posts a comment telling the user to run `gh auth refresh -s workflow`.
+2. **Maintainer review gate (MANDATORY).** Check all issues linked by the PR (from `Closes #N` / `Fixes #N` in body, or task ID in title). If ANY linked issue has the `needs-maintainer-review` label, do NOT merge. This label means a maintainer has not yet approved the issue for development. Also verify all linked issues have an assignee — unassigned issues should not have work in progress. The `maintainer-gate.yml` CI check enforces this as a required status check, but the pulse must also respect it to avoid merge attempts that will be blocked by CI.
 
-3. **Review gate.** Run `review-bot-gate-helper.sh check NUMBER SLUG`. Merge when any of: formal review count > 0, bot gate returns PASS, bot gate returns PASS_RATE_LIMITED (grace period elapsed), or PR has `skip-review-gate` label. Do NOT merge when formal review count is 0 AND bot gate returns WAITING. Run `review-bot-gate-helper.sh request-retry` to self-heal rate-limited bots.
+   **Security invariant:** Never bypass maintainer-gate checks by exempting trusted workflow labels (for example `quality-debt`). Approval and merge trust must stay tied to maintainer review state + accountable assignee, not to label class. If a queue deadlock appears, fix upstream metadata creation (for example auto-assign issues at creation time) instead of weakening the gate.
 
-4. **Unresolved review suggestions.** Check for unresolved bot suggestions with `gh api "repos/SLUG/pulls/NUMBER/comments"`. If actionable suggestions exist, dispatch a worker to address them (label `needs-review-fixes`), skip merge this cycle. If `needs-review-fixes` or `skip-review-suggestions` label already exists, skip this check.
+3. **Workflow file guard.** Use `check_workflow_merge_guard` from `pulse-wrapper.sh`. If the PR modifies `.github/workflows/` and the token lacks `workflow` scope, the merge will fail. The helper posts a comment telling the user to run `gh auth refresh -s workflow`.
+
+4. **Review gate.** Run `review-bot-gate-helper.sh check NUMBER SLUG`. Merge when any of: bot gate returns PASS, bot gate returns PASS_RATE_LIMITED (grace period elapsed), or PR has `skip-review-gate` label. Do NOT merge when bot gate returns WAITING. Run `review-bot-gate-helper.sh request-retry` to self-heal rate-limited bots. Note: the formal review count requirement (`required_approving_review_count`) is satisfied by `approve_collaborator_pr` in Step 3 — the pulse auto-approves collaborator PRs before merging (GH#10522).
+
+5. **Unresolved review suggestions.** Check for unresolved bot suggestions with `gh api "repos/SLUG/pulls/NUMBER/comments"`. If actionable suggestions exist, dispatch a worker to address them (label `needs-review-fixes`), skip merge this cycle. If `needs-review-fixes` or `skip-review-suggestions` label already exists, skip this check.
 
 ### PR triage
 
-- **Green CI + no blocking reviews** → merge: `gh pr merge <number> --repo <slug> --squash`. If the PR resolves an issue, comment on the issue to link the merged PR, then close it: `gh issue comment <number> --repo <slug> --body "Completed via PR #<N>."` then `gh issue close <number> --repo <slug>`.
+- **Green CI + no blocking reviews** → approve then merge: `approve_collaborator_pr <number> <slug> <author>` then `gh pr merge <number> --repo <slug> --squash`. If the PR resolves an issue, comment on the issue to link the merged PR, then close it: `gh issue comment <number> --repo <slug> --body "Completed via PR #<N>."` then `gh issue close <number> --repo <slug>`.
 - **Green CI + WAITING on review bots** → skip, run `request-retry`
 - **Failing CI** → check if systemic (same check fails on 3+ PRs). If systemic, file a workflow issue instead of dispatching per-PR fixes. If per-PR, dispatch a fix worker.
 - **Open 6+ hours with no recent commits** → something is stuck. Comment, consider closing and re-filing.
@@ -235,8 +361,9 @@ When closing any issue, ALWAYS comment first explaining why and linking to the P
 - **`status:blocked` but blockers resolved** → remove `status:blocked`, add `status:available`, comment what unblocked it. Dispatchable this cycle. Note: issues blocked by terminal blockers (GH#5141 — e.g., missing token scopes) are auto-detected during dispatch; the user must resolve the blocker and remove the label manually.
 - **Duplicate issues for same task ID** → keep the one referenced by `ref:GH#` in TODO.md, close others with a comment.
 - **Too large for one worker** → classify with `task-decompose-helper.sh classify`. If composite, decompose into subtask issues, label parent `status:blocked`. Child tasks enter the normal dispatch queue.
-- **`status:queued` or `status:in-progress`** → check `updatedAt`. If updated within 3 hours, skip. If 3+ hours with no PR and no worker, relabel `status:available`, unassign, comment the recovery.
-- **`needs-maintainer-review`** → SKIP. Awaiting maintainer review. Do NOT dispatch.
+- **`status:queued` or `status:in-progress`** → check `updatedAt`. If updated within 3 hours, skip. If 3+ hours with no PR and no worker, relabel `status:available`, unassign, comment the recovery. Note: issues claimed at creation via `/new-task` option 2 (t1687) will have `status:in-progress` + assignee set immediately, so the pulse correctly skips them during the interactive work window.
+- **`needs-maintainer-review`** → Do NOT dispatch an implementation worker. Instead, dispatch a **triage review worker** if no agent review comment exists yet (see "Automated triage review" below).
+- **`status:needs-info`** → Do NOT dispatch. Check the pre-fetched "Needs Info — Contributor Reply Status" section. If the contributor has replied since the label was applied, relabel to `needs-maintainer-review` so the triage pipeline re-evaluates (see "Contributor reply scan for status:needs-info" below).
 - **`status:available` or no status (without `needs-maintainer-review`)** → dispatch a worker.
 
 ### External issues and PRs — maintainer review gate (t1545)
@@ -249,7 +376,7 @@ When closing any issue, ALWAYS comment first explaining why and linking to the P
 2. Workflow checks `authorAssociation` — if not OWNER/MEMBER/COLLABORATOR, applies `needs-maintainer-review` label and posts a welcome comment
 3. Pulse sees `needs-maintainer-review` → **skip, do not dispatch**
 4. Maintainer reviews the issue and either:
-   - Removes `needs-maintainer-review` and adds `status:available` → dispatchable next cycle
+   - Removes `needs-maintainer-review` and adds `auto-dispatch` → dispatchable next cycle
    - Asks for more information → keeps label
    - Closes as duplicate/invalid/out-of-scope
 
@@ -260,13 +387,52 @@ When closing any issue, ALWAYS comment first explaining why and linking to the P
 - **Destructive behaviour reports** → valid bug, dispatch a fix (no label needed)
 - **Bug fixes and docs PRs** → normal review process
 
+### Automated triage review (opus-tier)
+
+Before waiting for the maintainer to manually review `needs-maintainer-review` issues, the pulse dispatches an opus-tier worker to post a structured analysis and recommendation. This gives the maintainer a pre-digested assessment so they can approve, decline, or provide direction with minimal effort.
+
+**When to dispatch a triage review:**
+
+Use the pre-fetched "Needs Maintainer Review — Triage Status" section (produced by `prefetch_triage_review_status()` in `pulse-wrapper.sh`). Each issue is already marked as **needs-review**, **reviewed**, or **unknown**. Dispatch only for items marked **needs-review** — do NOT re-query the GitHub API for comment checks here; the pre-fetched state is the single source of truth.
+
+**Skip triage review when:**
+
+- An agent review comment already exists (idempotency guard)
+- The maintainer has already commented (approved/declined/direction) — they don't need the review
+- The issue was created less than 5 minutes ago (give the author time to add context)
+- Worker slots are fully occupied with higher-priority work (triage reviews are lower priority than merges, CI fixes, and implementation dispatches)
+
+**Dispatch the triage review worker:**
+
+Triage reviews are operational (no code changes), so they do NOT use `/full-loop`. They use `/review-issue-pr` directly. They use opus tier because the analysis requires deep codebase understanding and architectural judgment.
+
+```bash
+RESOLVED_MODEL=$(~/.aidevops/agents/scripts/model-availability-helper.sh resolve opus)
+
+~/.aidevops/agents/scripts/headless-runtime-helper.sh run \
+  --role worker \
+  --session-key "triage-review-<number>" \
+  --dir <path> \
+  --model "$RESOLVED_MODEL" \
+  --title "Triage review: Issue #<number>" \
+  --prompt "/review-issue-pr <number>" &
+sleep 2
+```
+
+**Concurrency cap:** Max 2 triage review workers per pulse cycle. These are opus-tier and expensive — don't flood the worker pool with reviews when implementation work is waiting.
+
+**Priority:** Triage reviews are dispatched AFTER all merges, CI fixes, and implementation dispatches are handled. They fill remaining worker slots. If no slots are available, skip triage reviews this cycle — the issues will still be there next cycle.
+
+**Cost justification:** One opus triage review (~$0.10-0.30) saves the maintainer 10-30 minutes of manual investigation per issue. The review also captures architectural context that would otherwise require the maintainer to read code, check related issues, and trace root causes themselves.
+
 ### Comment-based approval
 
 Issues/PRs with `needs-maintainer-review` can be approved or declined by the maintainer commenting. Each cycle, fetch the maintainer's most recent comment on these items:
 
-- **"approved"** → remove `needs-maintainer-review`, add `status:available` (issues) or allow merge (PRs)
+- **"approved"** → remove `needs-maintainer-review`, add `auto-dispatch` (issues) or allow merge (PRs). If the triage review recommended a specific tier label (e.g., `tier:simple`), apply it. The `auto-dispatch` label is the established pattern — see the command block in "Cross-Repo TODO Sync" below.
 - **"declined"** → close with the maintainer's reason
-- **No matching comment** → skip, check next cycle
+- **Further direction** → if the maintainer's comment doesn't start with "approved" or "declined", treat it as additional context. On the next cycle, if no agent review exists that incorporates this direction, dispatch a new triage review worker with the maintainer's feedback included in the prompt.
+- **No matching comment from maintainer** → skip, check next cycle
 
 Only process comments from the repo maintainer (from `repos.json` or slug owner).
 
@@ -290,6 +456,12 @@ This is informational, not an auto-kill trigger. Workers doing legitimate resear
 After 2+ failed attempts on the same issue (count kill/failure comments), escalate by resolving the `opus` tier via `model-availability-helper.sh resolve opus` and passing `--model <resolved>`. This overrides any `tier:` label on the issue. At 3+ failures, also add a summary of what previous workers attempted. See "Model tier selection" under Dispatch Refinements for the full precedence chain.
 
 ## Dispatch Refinements
+
+### Peak-hours worker cap (t1677)
+
+`MAX_WORKERS` is computed by `pulse-wrapper.sh` before the pulse starts and written to `~/.aidevops/logs/pulse-max-workers`. When `supervisor.peak_hours_enabled` is `true` in `settings.json`, the wrapper automatically reduces `MAX_WORKERS` to `ceil(off_peak_max × peak_hours_worker_fraction)` (minimum 1) during the configured local-time window. The pulse reads the already-capped value — no action required here.
+
+To enable: `settings-helper.sh set supervisor.peak_hours_enabled true`. Default window: 5 AM–11 AM local time (Anthropic peak). Default fraction: 0.2 (20%). See `reference/settings.md` for full configuration.
 
 ### Per-repo worker cap
 
@@ -401,6 +573,31 @@ Serial merge for quality-debt: do not dispatch a second quality-debt worker for 
 
 Close quality-debt PRs that have been CONFLICTING for 24+ hours with a comment explaining they'll be superseded by smaller PRs. Relabel corresponding issues `status:available`.
 
+### Sweep-pulse dedup (GH#10308)
+
+The quality sweep (`stats-functions.sh`) and the pulse LLM are two independent systems that
+both discover code quality findings. Without coordination, they create duplicate issues for
+the same problems. The dedup contract:
+
+1. **The sweep creates issues with `source:quality-sweep` or `source:review-feedback` labels.**
+   These are the authoritative tracker for findings from ShellCheck, Qlty, SonarCloud, Codacy,
+   CodeRabbit, and merged PR review feedback.
+
+2. **The pre-fetched state separates sweep-tracked issues** into an "Already Tracked by Quality
+   Sweep" section. These issues are already filed — do NOT create new issues for the same
+   findings. Dispatch them as normal quality-debt/simplification-debt work when slots are
+   available.
+
+3. **Before creating any quality-related issue**, check whether an existing `quality-debt` or
+   `simplification-debt` issue already covers the same file or finding. Search by file path
+   in the title: `gh issue list --repo SLUG --label quality-debt --label simplification-debt
+   --state open --search "in:title FILENAME"`. If a match exists, skip creation.
+
+4. **The dashboard issue (labelled `persistent` + `quality-review`) is a reporting snapshot**
+   that may lag behind the codebase. The codebase is the primary source of truth. Do NOT
+   use dashboard findings as the sole basis for creating new issues — always verify against
+   the existing issue backlog first.
+
 ## Cross-Repo TODO Sync
 
 Issue creation (push) is handled exclusively by CI. The pulse runs pull and close only:
@@ -414,8 +611,9 @@ fi
 
 # Fetch comments and check for maintainer approval/decline
 # Works for both issues and PRs (GitHub's issues API handles both)
-COMMENT_DATA=$(gh api "repos/<slug>/issues/<number>/comments" \
-  --jq "[.[] | select(.user.login == \"$MAINTAINER\")] | last | {body: .body, id: .id}")
+# --paginate ensures all comments are fetched on issues with many comments
+COMMENT_DATA=$(gh api "repos/<slug>/issues/<number>/comments" --paginate \
+  --jq "[.[] | select(.user.login == \"$MAINTAINER\")] | last | {body: .body, id: .id, created_at: .created_at}")
 COMMENT_BODY=$(echo "$COMMENT_DATA" | jq -r '.body // empty' | tr '[:upper:]' '[:lower:]' | xargs)
 ```
 
@@ -462,7 +660,37 @@ gh pr close <number> --repo <slug> \
   -c "Closed per maintainer decision. Reason: ${REASON:-no reason given}"
 ```
 
-3. **No matching comment from maintainer** — skip, check again next cycle.
+3. **Comment contains further direction** (doesn't start with `approved` or `declined`) — the maintainer is providing feedback. If an agent triage review already exists but was posted BEFORE the maintainer's comment, dispatch a new triage review worker that incorporates the maintainer's feedback:
+
+```bash
+# Check if the maintainer's comment is newer than the last agent review
+LAST_REVIEW_DATE=$(gh api "repos/<slug>/issues/<number>/comments" --paginate \
+  --jq '[.[] | select(.body | test("## (Issue/PR )?Review:"))] | last | .created_at' 2>/dev/null || echo "")
+MAINTAINER_COMMENT_DATE=$(echo "$COMMENT_DATA" | jq -r '.created_at // empty')
+
+# If maintainer commented after the last review, dispatch a follow-up review
+if [[ -n "$MAINTAINER_COMMENT_DATE" && "$MAINTAINER_COMMENT_DATE" > "$LAST_REVIEW_DATE" ]]; then
+  MAINTAINER_FEEDBACK=$(echo "$COMMENT_DATA" | jq -r '.body // empty')
+  RESOLVED_MODEL=$(~/.aidevops/agents/scripts/model-availability-helper.sh resolve opus)
+
+  ~/.aidevops/agents/scripts/headless-runtime-helper.sh run \
+    --role worker \
+    --session-key "triage-review-<number>-followup" \
+    --dir <path> \
+    --model "$RESOLVED_MODEL" \
+    --title "Triage review followup: Issue #<number>" \
+    --prompt "/review-issue-pr <number>
+
+The maintainer provided the following feedback on the previous review:
+---
+${MAINTAINER_FEEDBACK}
+---
+Please incorporate this feedback into your analysis and update your recommendation." &
+  sleep 2
+fi
+```
+
+4. **No matching comment from maintainer** — skip, check again next cycle.
 
 **How to distinguish issues from PRs:** Check the pre-fetched state — PRs have a `headRefName` field, issues don't. Alternatively, use `gh api repos/<slug>/issues/<number> --jq '.pull_request // empty'` — non-empty means it's a PR.
 
@@ -473,9 +701,34 @@ gh pr close <number> --repo <slug> \
 - This is additive — direct label manipulation still works. If the maintainer has already removed `needs-maintainer-review` via labels, the item won't appear in this scan.
 - Keep this lightweight — one API call per `needs-maintainer-review` item per cycle. These items are low-volume by design.
 
+### Contributor reply scan for status:needs-info
+
+Issues labeled `status:needs-info` are waiting for the contributor to provide additional information. Each cycle, check the pre-fetched "Needs Info — Contributor Reply Status" section for issues where the contributor has replied.
+
+**Detection logic** (handled by `prefetch_needs_info_replies()` in `pulse-wrapper.sh`): For each `status:needs-info` issue, compare the label's `updatedAt` timestamp against the most recent comment from the issue author. If the author commented after the label was applied, the issue is marked **replied**.
+
+**When a contributor has replied:**
+
+```bash
+gh issue edit <number> --repo <slug> \
+  --remove-label "status:needs-info" \
+  --add-label "needs-maintainer-review"
+gh issue comment <number> --repo <slug> \
+  --body "Contributor replied to the information request. Relabeled to \`needs-maintainer-review\` for re-evaluation."
+```
+
+The issue re-enters the triage pipeline. On the next cycle, `prefetch_triage_review_status()` will mark it **needs-review** (since the previous review predates the new information), and step 4.5 will dispatch a follow-up triage review worker.
+
+**Guard rails:**
+
+- Only count comments from the **original issue author** — not bots, maintainer, or other contributors.
+- This is a label transition only — no worker dispatch, no slots consumed.
+- If the maintainer has already relabeled the issue manually, it won't appear in this scan.
+- One API call per `status:needs-info` issue per cycle. These are low-volume by design.
+
 ### Kill stuck workers
 
-Check `ps axo pid,etime,command | grep '\.opencode run' | grep '/full-loop Implement issue #' | grep -v '/pulse'`. Any worker running 3+ hours with no open PR is likely stuck. Kill it: `kill <pid>`. Comment on the issue with the full audit-quality fields (model, branch, reason, diagnosis, next action — see "Audit-quality state in issue and PR comments" below). This frees a slot. If the worker has recent commits or an open PR with activity, leave it alone — it's making progress.
+Check the Active Workers section in the pre-fetched state. Each worker line includes `process_uptime` and `elapsed_seconds` — these are the **authoritative** duration values from `ps etime` (how long the worker process has been alive). Use `process_uptime` as the `<duration>` in kill comments. Do NOT compute duration from dispatch comment timestamps, branch creation times, or worktree ages — those may reflect prior attempts, not the current worker session. Any worker running 3+ hours with no open PR is likely stuck. Kill it: `kill <pid>`. Comment on the issue with the full audit-quality fields (model, branch, reason, diagnosis, next action — see "Audit-quality state in issue and PR comments" below). This frees a slot. If the worker has recent commits or an open PR with activity, leave it alone — it's making progress.
 
 Before killing a worker for thrash, read the latest worker transcript/log tail and attempt one targeted coaching intervention unless the worker is clearly hard-stuck (for example: repeated identical fatal error, no commits for many hours, or provider backoff exhaustion). Coaching intervention means: post a concise issue comment with the exact blocker pattern, then re-dispatch with a narrower acceptance target and explicit checkpoint deadline. If that coached retry still fails to produce a checkpoint, then kill/requeue and comment why completion was not possible.
 
@@ -490,6 +743,8 @@ The "Active Workers" section in the pre-fetched state includes a `struggle_ratio
 - **`thrashing`**: ratio > 50, elapsed > 1 hour. The worker has been unproductive for a long time. Strongly consider killing it (`kill <pid>`) and re-dispatching with a simpler scope or more context in the issue body.
 
 **This is an informational signal, not an auto-kill trigger.** Workers doing legitimate research or planning may have high message counts with few commits — that's expected for the first 30 minutes. The flags only activate after the minimum elapsed time. Use your judgment: a worker with `struggle_ratio: 45` at 35 minutes that just made its first commit is recovering, not stuck.
+
+**`n/a` ratio:** When the struggle ratio shows `n/a`, the session DB was unavailable (e.g., Claude Code runtime without OpenCode DB). Do NOT fabricate or estimate the ratio — report it as `n/a` in kill comments. The `elapsed` time from `ps etime` is the process age, which is reliable for the worker's own process but should not be used to estimate message counts.
 
 **Configuration** (env vars in pulse-wrapper.sh):
 - `STRUGGLE_RATIO_THRESHOLD` — ratio above which to flag (default: 30)
@@ -521,26 +776,37 @@ Every comment the supervisor posts on an issue or PR must be **sufficient for a 
 
 When dispatching a worker, comment on the issue with:
 
+Generate the signature footer: `SIG_FOOTER=$(~/.aidevops/agents/scripts/gh-signature-helper.sh footer --model "<full model ID>" --issue "<slug>#<number>")`.
+
 ```bash
+SIG_FOOTER=$(~/.aidevops/agents/scripts/gh-signature-helper.sh footer --model "<full model ID, e.g., anthropic/claude-sonnet-4-6>" --issue "<slug>#<number>")
 gh issue comment <number> --repo <slug> --body "Dispatching worker.
-- **Model**: <tier and full model ID, e.g., sonnet (anthropic/claude-sonnet-4-6)>
 - **Branch**: <branch name, e.g., fix/t748-ai-migration>
 - **Scope**: <1-line description of what the worker should do>
 - **Attempt**: <N of M, e.g., 1 of 1, or 3 of 3 (escalated to opus)>
-- **Direction**: <any specific guidance, e.g., 'focus on migration chain from PR #213'>"
+- **Direction**: <any specific guidance, e.g., 'focus on migration chain from PR #213'>
+${SIG_FOOTER}"
 ```
+
+**No arbitrary line targets in Scope/Direction.** For simplification issues, do not invent target line counts (e.g., "from 206 to ≤120 lines"). The worker reads `code-simplifier.md` which says the resulting size is whatever remains after removing genuine noise. For large files, the worker will subdivide per `build-agent.md` (~300-line threshold). Inventing a number creates pressure to cut content to hit a target.
 
 **Required fields in kill/failure comments:**
 
 When killing a worker or closing a failed PR, comment with:
 
 ```bash
+SIG_FOOTER=$(~/.aidevops/agents/scripts/gh-signature-helper.sh footer --model "<tier used>" --issue "<slug>#<number>")
 gh issue comment <number> --repo <slug> --body "Worker killed after <duration> with <N> commits (struggle_ratio: <ratio>).
-- **Model**: <tier used>
 - **Branch**: <branch name>
 - **Reason**: <why it was killed — thrashing, timeout, CI loop, etc.>
 - **Diagnosis**: <1-line hypothesis of what went wrong>
-- **Next action**: <re-dispatch at same tier / escalate to opus / needs manual review>"
+- **Next action**: <re-dispatch at same tier / escalate to opus / needs manual review>
+${SIG_FOOTER}"
+# IMPORTANT: <duration> MUST come from the process_uptime field in the Active
+# Workers pre-fetched data (sourced from ps etime = actual process lifetime).
+# Do NOT compute duration from dispatch comment timestamps, branch ages, or
+# worktree creation times — those reflect prior attempts, not this worker.
+# If struggle_ratio is n/a, omit it rather than fabricating a value.
 ```
 
 **Required fields in merge/completion comments:**
@@ -548,10 +814,11 @@ gh issue comment <number> --repo <slug> --body "Worker killed after <duration> w
 When merging a PR or closing an issue as done:
 
 ```bash
+SIG_FOOTER=$(~/.aidevops/agents/scripts/gh-signature-helper.sh footer --model "<tier that succeeded>" --issue "<slug>#<number>" --solved)
 gh issue comment <number> --repo <slug> --body "Completed via PR #<N>.
-- **Model**: <tier that succeeded>
 - **Attempts**: <total attempts including failures>
-- **Duration**: <wall-clock from first dispatch to merge>"
+- **Duration**: <wall-clock from first dispatch to merge>
+${SIG_FOOTER}"
 ```
 
 **Why this matters:** Without these fields, auditing a task requires reading pulse logs, cross-referencing `ps` output timestamps, and guessing which model was used. The t748 incident had 7 kill comments that all said "Worker killed after Xh with 0 commits" but none recorded the model tier, making it impossible to determine whether escalation was attempted. Issue comments are the state dashboard — they must be self-contained.
@@ -676,20 +943,41 @@ ISSUE_DISPATCH_BUDGET=$(((AVAILABLE * NEW_ISSUE_DISPATCH_PCT) / 100))
 
 If budget is exhausted, stop opening new issue workers and continue PR advancement work.
 
-1. **Dedup guard (MANDATORY, GH#4400 + GH#4527):** Before dispatching, run deterministic checks for active workers, duplicate titles, and already-merged work. This prevents duplicate-dispatch thrashing and stale re-dispatches after a task is already merged.
+0.5. **Intelligence-first duplicate scan (GH#6419):** Before running any deterministic dedup checks, scan the issue list you already have from pre-fetched state. You can see all open issue titles for each repo — use that to spot obvious duplicates that share the same intent but have different task IDs or phrasing.
+
+**What to look for:** Multiple open issues in the same repo that describe the same feature, fix, or change — even if they have different task IDs. Examples: "Add universal tax fallback for WooCommerce" and "Implement tax fallback when no tax class matches" are the same feature. "Fix login redirect loop" and "Auth redirect causes infinite loop on /login" are the same bug.
+
+**When you find duplicates:**
+- Keep the oldest issue (or the one with the most context/comments).
+- Close the others with a standardised comment linking to the kept issue:
+
+```text
+Closing as duplicate of #<kept_number>. Identified during pulse triage — these issues describe the same work.
+```
+
+- If any duplicate is already assigned or has an active worker, do NOT close it — skip and let the worker finish. Close the unassigned duplicates only.
+- This is a judgment call, not a keyword match. Read the titles and use your understanding. If you're uncertain whether two issues are truly duplicates, leave them both open — a false positive (closing a non-duplicate) is worse than a false negative (dispatching a duplicate that a worker catches).
+
+**Cost:** Zero — you're reading data already in your context. This catches the class of duplicates that deterministic dedup misses: same feature, different task IDs, different phrasing.
+
+1. **Dedup guard (MANDATORY, GH#4400 + GH#4527):** After the intelligence scan, run deterministic checks as a safety net for active workers, duplicate titles, and already-merged work. This catches rapid-fire duplicates and cross-machine races that the intelligence scan may miss.
 
 ```bash
 # Source once per pulse run (provides has_worker_for_repo_issue, has_merged_pr_for_issue, and check_dispatch_dedup)
 source ~/.aidevops/agents/scripts/pulse-wrapper.sh
 
-# Single dedup guard: checks active worker, title variants, and merged-PR evidence
-if check_dispatch_dedup <number> <slug> "Issue #<number>: <title>" "<task-id>: <title>"; then
+# Single dedup guard: checks active worker, title variants, merged-PR evidence, assignee, and cross-machine claim
+if check_dispatch_dedup <number> <slug> "Issue #<number>: <title>" "<task-id>: <title>" "$RUNNER_USER"; then
   echo "Dedup guard blocked dispatch for #<number> in <slug> — skipping"
+  # Leave a trace in GitHub so the catch is visible to all runners and to the dedup health check
+  gh issue comment <number> --repo <slug> --body "Dispatch skipped — deterministic dedup guard detected overlap (active worker, merged PR evidence, assigned to another runner, or lost claim). See check_dispatch_dedup in pulse-wrapper.sh." 2>/dev/null || true
   continue
 fi
 ```
 
-`check_dispatch_dedup` runs all three checks in sequence: (1) exact repo+issue process overlap, (2) title variants via dispatch-dedup-helper (e.g., `issue-3502` vs `Issue #3502: description`), and (3) merged-PR evidence via close keywords and task-ID fallback. Skipping this guard caused both the 26-worker thrashing incident (GH#4400) and the awardsapp duplicate-PR pattern (GH#4527).
+`check_dispatch_dedup` runs all seven checks in sequence: (1) in-flight dispatch ledger, (2) exact repo+issue process overlap, (3) title variants via dispatch-dedup-helper (e.g., `issue-3502` vs `Issue #3502: description`), (4) merged-PR evidence via close keywords and task-ID fallback, (5) cross-machine dispatch comment check (GH#11141) — detects "Dispatching worker" comments posted by other runners, the persistent cross-machine signal that survives beyond the claim lock's 8-second window, (6) cross-machine assignee guard — blocks if assigned to any login other than self (GH#11141 fix: repo owner/maintainer are no longer excluded since they may also be runners), and (7) cross-machine optimistic claim lock (GH#11086) — posts a plain-text claim comment, sleeps the consensus window, and checks who was first. Only the oldest claimant proceeds; others back off. The winning claim comment persists as audit trail.
+
+The deterministic guard is the safety net, not the primary layer. Over time, as the intelligence scan catches more duplicates earlier, the deterministic guard should fire less often. See "Dedup health monitoring" below for how to track this.
 
 1.5. **Apply per-repo worker cap before dispatch:** default `MAX_WORKERS_PER_REPO=5` (override via env var only when you have a clear reason). If the target repo already has `MAX_WORKERS_PER_REPO` active workers, skip dispatch for that repo this cycle and continue with other repos.
 
@@ -926,6 +1214,7 @@ batch-strategy-helper.sh validate --tasks "$TASKS_JSON"
 7. `quality-debt` issues (unactioned review feedback from merged PRs) — **use worktree dispatch** (see "Quality-debt worktree dispatch" below)
 8. `simplification-debt` issues (human-approved simplification opportunities)
 9. Oldest issues
+10. FOSS contributions (t1702) — only when all managed-repo work is dispatched and idle capacity exists. See Step 4.7.
 
 ### Quality-debt concurrency cap (configurable, default 30%)
 
@@ -1156,6 +1445,27 @@ Check the latest comment on each repo's quality review issue. Triage findings us
 - **Batch related findings** sharing a root cause into a single issue
 
 Dedup before creating (search existing issues). Max 3 issues per repo per cycle. NEVER close the quality review issue itself.
+
+## Dedup Health Monitoring (GH#6419)
+
+The dedup system has two layers: intelligence (you reading issue titles) and deterministic (bash scripts matching keys). Both leave traces in GitHub — the canonical state store visible to all runners.
+
+**Traces to look for (all in GitHub issue comments):**
+
+| Event | Comment pattern | Meaning |
+|-------|----------------|---------|
+| Intelligence catch | "Closing as duplicate of #X. Identified during pulse triage" | You spotted a duplicate before dispatch |
+| Deterministic catch | "Dispatch skipped — deterministic dedup guard" | `check_dispatch_dedup` blocked a dispatch (layers 1-5) |
+| Claim lock catch | "claim lost for #X" in pulse logs | Layer 6 cross-machine claim prevented duplicate dispatch |
+| Worker-discovered miss | "duplicate of #X" or "already implemented in PR #Y" (posted by a worker) | Both layers missed it — a worker was dispatched unnecessarily |
+
+**Periodic health check (once per pulse, during cycle summary):**
+
+At the end of each pulse session, briefly note in your summary how many duplicates you caught (intelligence layer) and whether any workers reported discovering duplicates (misses). This is observational — no `gh` queries needed, just report what you saw during the session.
+
+**Graduation signal:** If the deterministic guard (`check_dispatch_dedup`) has not caught anything that the intelligence scan missed for a sustained period (observable across multiple pulse sessions via the absence of "Dispatch skipped" comments without a preceding "Closing as duplicate" comment), that's a signal the deterministic layer may be removable. File a self-improvement issue when you observe this pattern — do not remove the code yourself.
+
+**If worker-discovered misses occur:** That means both layers failed. Assess why — was the issue title too vague to spot as a duplicate? Were the issues created in rapid succession between pulse cycles? File a self-improvement issue with the specific failure pattern so the guidance or title quality can be improved.
 
 ## Hard Rules
 

@@ -21,70 +21,54 @@ mcp:
 ## Quick Reference
 
 - **Purpose**: Browser automation via Chrome extension with full Playwright API
-- **Install Extension**: [Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe)
-- **Browsers**: Chrome, Brave, Edge (any Chromium-based browser)
+- **Extension**: [Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) (Chrome, Brave, Edge)
 - **MCP**: `npx playwriter@latest`
-- **Single Tool**: `execute` - runs Playwright code snippets
+- **Single Tool**: `execute` — runs Playwright code snippets
+- **Icon States**: Gray/Black = disconnected · Green = ready · Orange = connecting · Red = error
+- **Performance**: Navigate 2.95s, form fill 2.24s, reliability 1.96s avg. Always headed.
 
-**Key Advantages**:
-- **1 tool vs 17+** - Less context bloat than BrowserMCP
-- **Full Playwright API** - LLMs already know it from training
-- **Your existing browser** - Reuse extensions, sessions, cookies
-- **Works with Brave, Edge, Chrome** - Any Chromium-based browser with extension support
-- **Bypass detection** - Disconnect extension to bypass automation detection
-- **Collaborate with AI** - Work alongside it in the same browser
-- **Proxy via browser** - Uses whatever proxy your browser is configured with
+**Why Playwriter over alternatives:**
 
-**Performance**: Navigate 2.95s, form fill 2.24s, reliability 1.96s avg.
-Always headed (uses your visible browser). Proxy support via browser settings or extensions (FoxyProxy etc.).
+| Feature | Playwriter | BrowserMCP | Playwright MCP | Stagehand |
+|---------|------------|------------|----------------|-----------|
+| Tools | 1 (`execute`) | 17+ | 10+ | 4 primitives |
+| Context bloat | Minimal | High | Medium | Low |
+| API | Full Playwright | Limited | Full Playwright | Natural language |
+| Browser | Your existing | New instance | New instance | New instance |
+| Extensions | Yes | No | No | No |
+| Sessions/cookies | Yes | No | No | No |
+| Detection bypass | Yes (disconnect) | No | No | No |
 
-**Browser compatibility**: Works with any Chromium-based browser - Chrome, Brave, and Edge all support the Playwriter extension from the Chrome Web Store. Use Brave for built-in Shields (ad/tracker blocking) or Edge for enterprise SSO. If you have uBlock Origin installed in your browser, it works automatically with Playwriter.
+**When to use**: Existing logged-in sessions, browser extensions (password managers, ad blockers), collaborating with AI past captchas, resource efficiency.
 
-**Extensions**: Full access to all your installed extensions (uBlock Origin, password managers, FoxyProxy, etc.). Password managers already unlocked. This is the only tool where password manager autofill works without extra setup.
+**When to use alternatives**: **Stagehand** for natural language automation / self-healing selectors. **Playwright MCP** for isolated automation without extension. **Crawl4AI** for scraping. **playwright-cli** for headless (no MCP needed).
 
-**Parallel**: Multiple connected tabs (click extension on each). Shared browser session (not isolated). For isolated parallel work, use Playwright direct.
+**Parallel tabs**: Click extension on each tab. Shared session — not isolated. For isolated parallel work, use Playwright direct.
 
-**AI Page Understanding**: Standard Playwright API - use `page.locator('body').ariaSnapshot()` or element queries. Screenshots also work since it's your visible browser.
-
-**Chrome DevTools MCP**: Your browser needs remote debugging enabled (`chrome://inspect/#remote-debugging`), then use `npx chrome-devtools-mcp@latest --autoConnect`.
-
-**Icon States**:
-- Gray/Black: Not connected
-- Green: Connected and ready
-- Orange (...): Connecting
-- Red (!): Error
-
-**When to use**: When you need your existing logged-in sessions, browser extensions (especially password managers), or want to collaborate with AI on a page you're viewing.
-
-**vs playwright-cli**: Use `playwright-cli` for headless automation (no MCP needed, just CLI). Use Playwriter when you need your existing browser state, extensions, or passwords.
+**Chrome DevTools MCP**: `chrome://inspect/#remote-debugging` → `npx chrome-devtools-mcp@latest --autoConnect`.
 
 <!-- AI-CONTEXT-END -->
 
 ## Installation
 
-### 1. Install Extension in Your Browser
+1. **Extension**: Install from [Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe). Pin to toolbar. Edge: enable "Allow extensions from other stores" in `edge://extensions` first.
+2. **Connect**: Click extension icon on tabs to control. Green = connected.
+3. **MCP config**:
 
-The Playwriter extension works with any Chromium-based browser:
+**Claude Desktop** (`claude_desktop_config.json`):
 
-| Browser | Install From | Ad Blocking |
-|---------|-------------|-------------|
-| **Chrome** | [Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) | Install uBlock Origin separately |
-| **Brave** | [Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) | Built-in Shields (no extension needed) |
-| **Edge** | [Chrome Web Store](https://chromewebstore.google.com/detail/playwriter-mcp/jfeammnjpkecdekppnclgkkffahnhfhe) | Install uBlock Origin separately [^1] |
+```json
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "npx",
+      "args": ["-y", "playwriter@latest"]
+    }
+  }
+}
+```
 
-Install from the Chrome Web Store link above and pin to toolbar. The same extension works in all three browsers.
-
-[^1]: Edge requires "Allow extensions from other stores" enabled in `edge://extensions` before installing from the Chrome Web Store.
-
-### 2. Connect to Tabs
-
-Click the Playwriter extension icon on any tab you want to control. Icon turns green when connected.
-
-### 3. Configure MCP
-
-Add to your MCP client configuration:
-
-**OpenCode** (`~/.config/opencode/opencode.json`):
+**OpenCode** (`~/.config/opencode/opencode.json`) — use full path to `npx` (e.g., `/opt/homebrew/bin/npx`) if the app runs with a restricted PATH:
 
 ```json
 {
@@ -98,86 +82,42 @@ Add to your MCP client configuration:
 }
 ```
 
-> **Note**: Use full path to `npx` (e.g., `/opt/homebrew/bin/npx` on macOS with Homebrew) for reliability. The `-y` flag auto-confirms package installation.
-
-**Claude Desktop** (`claude_desktop_config.json`):
-
-> **Note**: If Claude Desktop runs with a restricted PATH, use the full `npx` path (e.g., `/opt/homebrew/bin/npx`).
+**Per-agent enable** (OpenCode):
 
 ```json
 {
-  "mcpServers": {
-    "playwriter": {
-      "command": "npx",
-      "args": ["-y", "playwriter@latest"]
-    }
-  }
-}
-```
-
-**Enable per-agent** (OpenCode tools section):
-
-```json
-{
-  "tools": {
-    "playwriter_*": false
-  },
+  "tools": { "playwriter_*": false },
   "agent": {
-    "Build+": {
-      "tools": {
-        "playwriter_*": true
-      }
-    }
+    "Build+": { "tools": { "playwriter_*": true } }
   }
 }
 ```
-
-> **Tip**: Disable globally with `"playwriter_*": false` in `tools`, then enable per-agent to reduce context token usage.
 
 ## Usage
 
 ### The `execute` Tool
 
-Playwriter exposes a single `execute` tool that runs Playwright code:
+Runs any Playwright code against connected tabs:
 
 ```javascript
-// Navigate
 await page.goto('https://example.com')
-
-// Click
 await page.click('button.submit')
-
-// Fill form
 await page.fill('input[name="email"]', 'user@example.com')
-
-// Screenshot
 await page.screenshot({ path: 'screenshot.png' })
-
-// Extract text
 const title = await page.textContent('h1')
-
-// Wait for element
 await page.waitForSelector('.loaded')
 ```
 
-### Multi-Tab Control
+### Multi-Tab
 
 ```javascript
-// Get all connected tabs
 const pages = context.pages()
-
-// Switch between tabs
 const page1 = pages[0]
-const page2 = pages[1]
-
-// Create new tab
 const newPage = await context.newPage()
 await newPage.goto('https://example.com')
 ```
 
-### Programmatic Usage
-
-Use with playwright-core directly:
+### Programmatic (without MCP)
 
 ```javascript
 import { chromium } from 'playwright-core'
@@ -185,186 +125,40 @@ import { startPlayWriterCDPRelayServer, getCdpUrl } from 'playwriter'
 
 const server = await startPlayWriterCDPRelayServer()
 const browser = await chromium.connectOverCDP(getCdpUrl())
-
-const context = browser.contexts()[0]
-const page = context.pages()[0]
-
+const page = browser.contexts()[0].pages()[0]
 await page.goto('https://example.com')
 await page.screenshot({ path: 'screenshot.png' })
-
 await browser.close()
 server.close()
 ```
 
-## Comparison with Other Tools
+### Screenshots and PDF
 
-| Feature | Playwriter | BrowserMCP | Playwright MCP | Stagehand |
-|---------|------------|------------|----------------|-----------|
-| Tools | 1 (`execute`) | 17+ | 10+ | 4 primitives |
-| Context bloat | Minimal | High | Medium | Low |
-| API | Full Playwright | Limited | Full Playwright | Natural language |
-| Browser | Your existing | New instance | New instance | New instance |
-| Extensions | ✅ Reuse yours | ❌ | ❌ | ❌ |
-| Sessions | ✅ Existing | ❌ | ❌ | ❌ |
-| Detection bypass | ✅ Disconnect | ❌ | ❌ | ❌ |
-| Collaboration | ✅ Same browser | ❌ | ❌ | ❌ |
-
-### When to Use Playwriter
-
-- **Debugging existing sessions** - Start on a page with your logged-in state
-- **Bypassing automation detection** - Disconnect extension temporarily
-- **Using your extensions** - Ad blockers, password managers work
-- **Collaborating with AI** - Help it past captchas in real-time
-- **Resource efficiency** - No separate Chrome instance
-
-### When to Use Other Tools
-
-- **Stagehand** - Natural language automation, self-healing selectors
-- **Playwright MCP** - Isolated automation, no extension needed
-- **Crawl4AI** - Web scraping and content extraction
-
-## Architecture
-
-```text
-+---------------------+     +-------------------+     +-----------------+
-|   BROWSER           |     |   LOCALHOST       |     |   MCP CLIENT    |
-|                     |     |                   |     |                 |
-|  +---------------+  |     | WebSocket Server  |     |  +-----------+  |
-|  |   Extension   |<--------->  :19988         |     |  | AI Agent  |  |
-|  |  (bg script)  |  | WS  |                   |     |  | (Claude)  |  |
-|  +-------+-------+  |     |  /extension       |     |  +-----------+  |
-|          |          |     |       ^           |     |        |        |
-|          | chrome   |     |       |           |     |        v        |
-|          | .debug   |     |       v           |     |  +-----------+  |
-|          v          |     |  /cdp/:id <--------------> |  execute  |  |
-|  +---------------+  |     |                   |  WS |  |   tool    |  |
-|  | Tab 1 (green) |  |     | Routes:           |     |  +-----------+  |
-|  +---------------+  |     |  - CDP commands   |     |        |        |
-|  +---------------+  |     |  - CDP events     |     |        v        |
-|  | Tab 2 (green) |  |     |  - attach/detach  |     |  +-----------+  |
-|  +---------------+  |     |    Target events  |     |  | Playwright|  |
-|  +---------------+  |     +-------------------+     |  |    API    |  |
-|  | Tab 3 (gray)  |  |                               |  +-----------+  |
-|  +---------------+  |     Tab 3 not controlled      +-----------------+
-+---------------------+
-```
-
-## Security
-
-### How It Works
-
-1. **Local WebSocket Server** - Runs on `localhost:19988`
-2. **Localhost-Only** - No CORS headers, only local processes can connect
-3. **User-Controlled** - Only tabs where you clicked the extension icon
-4. **Explicit Consent** - Chrome shows automation banner on controlled tabs
-
-### What Can Be Controlled
-
-- ✅ Tabs you explicitly connected (clicked extension icon)
-- ✅ New tabs created by automation
-- ❌ Other browser tabs
-- ❌ Tabs you haven't connected
-
-### What Cannot Happen
-
-- ❌ Remote access (localhost-only)
-- ❌ Passive monitoring of unconnected tabs
-- ❌ Automatic spreading to new manual tabs
-
-## Common Patterns
-
-### Login Flow
+> **Screenshot size limit**: Do NOT use `fullPage: true` for AI vision review. Full-page captures can exceed 8000px, crashing the session (Anthropic hard-rejects >8000px). Use viewport-sized screenshots. For human-only full-page: `magick full.png -resize "1568x1568>" full-resized.png`. See `prompts/build.txt` "Screenshot Size Limits".
 
 ```javascript
-// Navigate to login
-await page.goto('https://app.example.com/login')
-
-// Fill credentials
-await page.fill('input[name="email"]', 'user@example.com')
-await page.fill('input[name="password"]', 'password')
-
-// Click login
-await page.click('button[type="submit"]')
-
-// Wait for redirect
-await page.waitForURL('**/dashboard')
-```
-
-### Form Submission
-
-```javascript
-// Fill form fields
-await page.fill('#name', 'John Doe')
-await page.fill('#email', 'john@example.com')
-await page.selectOption('#country', 'US')
-await page.check('#terms')
-
-// Submit
-await page.click('button[type="submit"]')
-
-// Wait for success
-await page.waitForSelector('.success-message')
-```
-
-### Data Extraction
-
-```javascript
-// Get all product prices
-const prices = await page.$$eval('.product-price', 
-  elements => elements.map(el => el.textContent)
-)
-
-// Get table data
-const rows = await page.$$eval('table tr', rows => 
-  rows.map(row => {
-    const cells = row.querySelectorAll('td')
-    return Array.from(cells).map(cell => cell.textContent)
-  })
-)
-```
-
-### Screenshot and PDF
-
-> **Screenshot size limit**: Do NOT use `fullPage: true` for screenshots intended for AI vision review. Full-page captures can exceed 8000px, which crashes the session (Anthropic hard-rejects images >8000px). Use viewport-sized screenshots for AI review. If full-page is needed for human review, resize before including in conversation: `magick full.png -resize "1568x1568>" full-resized.png`. See `prompts/build.txt` "Screenshot Size Limits".
-
-```javascript
-// Viewport-sized screenshot (safe for AI review)
+// Viewport screenshot (safe for AI review)
 await page.screenshot({ path: 'viewport.png' })
 
-// DANGER: fullPage:true creates screenshots that can exceed 8000px, which
-// Anthropic hard-rejects -- crashing the AI session with no recovery (the
-// oversized image is stuck in message history). Save to disk only, resize
-// before sending to AI (see "Screenshot Size Limits" in prompts/build.txt).
-// await page.screenshot({ path: 'full.png', fullPage: true })
-
-// Element screenshot (safe -- element-scoped, not full page)
+// Element screenshot (safe — scoped, not full page)
 await page.locator('.chart').screenshot({ path: 'chart.png' })
 
 // PDF export
 await page.pdf({ path: 'page.pdf', format: 'A4' })
 ```
 
+## Security
+
+- **Local WebSocket** on `localhost:19988` — no CORS, only local processes connect
+- **User-controlled** — only tabs where you clicked the extension are accessible
+- **Explicit consent** — Chrome shows automation banner on controlled tabs
+- New tabs from automation are controlled; unconnected tabs and remote access are not possible
+
 ## Troubleshooting
 
-### Extension Not Connecting
-
-1. Check extension is installed and pinned
-2. Click extension icon on the tab (should turn green)
-3. Check for error badge (red !)
-4. Reload the tab and try again
-
-### MCP Not Finding Tabs
-
-1. Ensure extension is connected (green icon)
-2. Restart MCP client
-3. Check WebSocket server is running on port 19988
-
-### Automation Detection
-
-1. Disconnect extension (click icon to turn gray)
-2. Complete manual action (login, captcha)
-3. Reconnect extension (click icon to turn green)
-4. Continue automation
+- **Extension not connecting**: Installed and pinned? Click icon on tab (should turn green). Red badge = error. Reload tab.
+- **MCP not finding tabs**: Green icon? Restart MCP client. Verify WebSocket on port 19988.
+- **Automation detection**: Disconnect (click icon → gray) → complete manual action (login, captcha) → reconnect (click → green) → resume.
 
 ## Resources
 

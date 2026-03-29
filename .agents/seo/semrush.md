@@ -11,145 +11,57 @@ tools:
 
 # Semrush SEO Integration
 
-<!-- AI-CONTEXT-START -->
-
 ## Quick Reference
 
-- **Purpose**: Domain analytics, keyword research, backlink analysis, competitor research, position tracking, site audit
-- **API**: REST at `https://api.semrush.com/` (Analytics v3) and `https://api.semrush.com/management/v1/` (Projects)
-- **Auth**: API key as query parameter `key=` in `~/.config/aidevops/credentials.sh` as `SEMRUSH_API_KEY`
-- **Docs**: https://developer.semrush.com/api/
-- **Response format**: CSV (semicolon-delimited) for Analytics v3
-- **No MCP required** - uses curl directly (Semrush also offers an official MCP server for AI tool integration)
+- **API**: `https://api.semrush.com/` (Analytics v3) | `https://api.semrush.com/management/v1/` (Projects)
+- **Auth**: `key=` query param — `SEMRUSH_API_KEY` in `~/.config/aidevops/credentials.sh`; `source ~/.config/aidevops/credentials.sh`
+- **Response**: CSV (semicolon-delimited). Docs: https://developer.semrush.com/api/ — no MCP required (curl direct; official MCP also available)
+- **Setup**: Semrush account > Subscription Info > API Units tab; `export SEMRUSH_API_KEY="your_key_here"`
+- **Pricing**: Pro 10k units/$139.95 | Guru 30k/$249.95 | Business 50k/$499.95 per month. Additional units purchasable.
+- **Unit balance**: `curl -s "https://api.semrush.com/management/v1/projects?key=$SEMRUSH_API_KEY" -H "Accept: application/json"`
 
-## Pricing
+Use `display_limit` to control unit consumption per request.
 
-Semrush API uses a unit-based system. Each API call consumes units based on the number of result lines returned.
+## Endpoints
 
-| Plan | API Units/Month | Included With |
-|------|----------------|---------------|
-| Pro | 10,000 | $139.95/mo subscription |
-| Guru | 30,000 | $249.95/mo subscription |
-| Business | 50,000 | $499.95/mo subscription |
+All Analytics v3 endpoints return CSV (semicolon-delimited). Use `export_columns` to select fields.
 
-Additional units can be purchased. Use `display_limit` to control unit consumption.
-
-<!-- AI-CONTEXT-END -->
-
-## Authentication
-
-```bash
-source ~/.config/aidevops/credentials.sh
-```
-
-## API Unit Balance
-
-```bash
-curl -s "https://api.semrush.com/management/v1/projects?key=$SEMRUSH_API_KEY" \
-  -H "Accept: application/json"
-```
-
-## Analytics API v3 Endpoints
-
-All Analytics v3 endpoints return CSV (semicolon-delimited). Use `export_columns` to select fields and `display_limit` to limit rows (saves API units).
-
-### Domain Overview (All Databases)
+### Domain Reports
 
 ```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_ranks&export_columns=Db,Dn,Rk,Or,Ot,Oc,Ad,At,Ac&domain=example.com"
-```
-
-### Domain Overview (One Database)
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_rank&export_columns=Dn,Rk,Or,Ot,Oc,Ad,At,Ac&domain=example.com&database=us"
-```
-
-### Domain Organic Keywords
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic&export_columns=Ph,Po,Pp,Pd,Nq,Cp,Ur,Tr,Tc,Co,Kd&domain=example.com&database=us&display_limit=50"
-```
-
-### Domain Paid Keywords
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_adwords&export_columns=Ph,Po,Nq,Cp,Tr,Tc,Co,Ur,Ds&domain=example.com&database=us&display_limit=50"
-```
-
-### Competitors in Organic Search
-
-```bash
+curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic_unique&export_columns=Ur,Pc,Tg&domain=example.com&database=us&display_limit=50"
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic_organic&export_columns=Dn,Cr,Np,Or,Ot,Oc,Ad&domain=example.com&database=us&display_limit=20"
-```
-
-### Domain vs Domain
-
-Compare up to 5 domains for keyword overlap:
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_domains&export_columns=Ph,Nq,Cp,Co,Kd,P0,P1,P2&domains=example.com%7Cor%7C*%7Ccompetitor1.com%7Cor%7C*%7Ccompetitor2.com%7Cor%7C*&database=us&display_limit=50"
 ```
 
-### Backlinks Overview
+`domain_ranks`=all DBs overview, `domain_rank`=one DB, `domain_organic`=organic keywords, `domain_adwords`=paid keywords, `domain_organic_unique`=organic pages, `domain_organic_organic`=competitors, `domain_domains`=domain vs domain (up to 5).
 
-```bash
-curl -s "https://api.semrush.com/analytics/v1/?key=$SEMRUSH_API_KEY&type=backlinks_overview&target=example.com&target_type=root_domain&export_columns=total,domains_num,urls_num,ips_num,follows_num,nofollows_num,texts_num,images_num"
-```
-
-### Backlinks List
-
-```bash
-curl -s "https://api.semrush.com/analytics/v1/?key=$SEMRUSH_API_KEY&type=backlinks&target=example.com&target_type=root_domain&export_columns=source_url,source_title,target_url,anchor,external_num,internal_num&display_limit=50"
-```
-
-### Referring Domains
-
-```bash
-curl -s "https://api.semrush.com/analytics/v1/?key=$SEMRUSH_API_KEY&type=backlinks_refdomains&target=example.com&target_type=root_domain&export_columns=domain,domain_score,backlinks_num,first_seen,last_seen&display_limit=50"
-```
-
-### Keyword Overview (One Database)
+### Keyword Reports
 
 ```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=phrase_this&export_columns=Ph,Nq,Cp,Co,Nr,Td,Kd,In&phrase=seo+tools&database=us"
-```
-
-### Keyword Overview (All Databases)
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=phrase_all&export_columns=Db,Ph,Nq,Cp,Co,Nr&phrase=seo+tools"
-```
-
-### Related Keywords
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=phrase_related&export_columns=Ph,Nq,Cp,Co,Nr,Td,Kd,Rr&phrase=seo+tools&database=us&display_limit=50"
-```
-
-### Broad Match Keywords
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=phrase_fullsearch&export_columns=Ph,Nq,Cp,Co,Nr,Td,Kd&phrase=seo+tools&database=us&display_limit=50"
-```
-
-### Keyword Difficulty
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=phrase_kdi&export_columns=Ph,Kd&phrase=seo+tools&database=us"
-```
-
-### Organic Results for Keyword
-
-```bash
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=phrase_organic&export_columns=Dn,Ur,Fk,Fp,Po&phrase=seo+tools&database=us&display_limit=20"
 ```
 
-### Domain Organic Pages
+`phrase_this`=one DB overview, `phrase_all`=all DBs, `phrase_related`=related keywords, `phrase_fullsearch`=broad match, `phrase_kdi`=difficulty, `phrase_organic`=organic results for keyword.
+
+### Backlink Reports
 
 ```bash
-curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic_unique&export_columns=Ur,Pc,Tg&domain=example.com&database=us&display_limit=50"
+curl -s "https://api.semrush.com/analytics/v1/?key=$SEMRUSH_API_KEY&type=backlinks_overview&target=example.com&target_type=root_domain&export_columns=total,domains_num,urls_num,ips_num,follows_num,nofollows_num,texts_num,images_num"
+curl -s "https://api.semrush.com/analytics/v1/?key=$SEMRUSH_API_KEY&type=backlinks&target=example.com&target_type=root_domain&export_columns=source_url,source_title,target_url,anchor,external_num,internal_num&display_limit=50"
+curl -s "https://api.semrush.com/analytics/v1/?key=$SEMRUSH_API_KEY&type=backlinks_refdomains&target=example.com&target_type=root_domain&export_columns=domain,domain_score,backlinks_num,first_seen,last_seen&display_limit=50"
 ```
+
+`backlinks_overview`=summary, `backlinks`=full list, `backlinks_refdomains`=referring domains.
 
 ## Parameters
 
@@ -195,21 +107,13 @@ curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic_uniqu
 
 ## Filters
 
-Filters use the format: `column|condition|value`. Multiple filters are joined with `|or|` or `|and|`. URL-encode the filter string.
+Format: `column|condition|value`. Join multiple with `|or|` or `|and|`. URL-encode the filter string.
 
-| Condition | Meaning |
-|-----------|---------|
-| `Gt` | Greater than |
-| `Lt` | Less than |
-| `Eq` | Equal to |
-| `Co` | Contains |
-| `Bw` | Begins with |
-| `Ew` | Ends with |
+Conditions: `Gt` (greater than), `Lt` (less than), `Eq` (equal), `Co` (contains), `Bw` (begins with), `Ew` (ends with).
 
-Example: keywords with volume > 1000:
+Example — keywords with volume > 1000 (`Nq|Gt|1000`):
 
 ```bash
-# Filter: Nq|Gt|1000
 curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic&export_columns=Ph,Po,Nq,Cp,Kd&domain=example.com&database=us&display_limit=50&display_filter=%2B%7CNq%7CGt%7C1000"
 ```
 
@@ -224,11 +128,3 @@ curl -s "https://api.semrush.com/?key=$SEMRUSH_API_KEY&type=domain_organic&expor
 | Position tracking | Via Projects API | N/A via API |
 | Site audit | Via Projects API | N/A via API |
 | Pricing | Unit-based (included with subscription) | Subscription-based |
-
-## Setup
-
-Get API key from Semrush account > Subscription Info > API Units tab, and add to `~/.config/aidevops/credentials.sh`:
-
-```bash
-export SEMRUSH_API_KEY="your_key_here"
-```

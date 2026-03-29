@@ -47,7 +47,11 @@ authorized_keys
 # Exception for credential/secret management scripts (not actual credentials)
 !.agents/scripts/credential-helper.sh
 !.agents/scripts/secret-helper.sh
+!.agents/scripts/secret-hygiene-helper.sh
 !.agents/scripts/tests/test-secret-helper.sh
+
+# Exception for secret handling reference doc (guidance, not actual secrets)
+!.agents/reference/secret-handling.md
 
 # Environment files
 .env*
@@ -220,3 +224,6 @@ repomix-output.*
 # ML model caches (downloaded at runtime)
 mlx_models/
 __pycache__/
+
+# Accidentally committed binaries
+bv

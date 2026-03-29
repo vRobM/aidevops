@@ -15,6 +15,7 @@ readonly DEFAULT_MAX_TASK_ITERATIONS=50 DEFAULT_MAX_PREFLIGHT_ITERATIONS=5 DEFAU
 readonly BOLD='\033[1m'
 
 HEADLESS="${FULL_LOOP_HEADLESS:-false}"
+_FG_PID_FILE=""
 
 is_headless() { [[ "$HEADLESS" == "true" ]]; }
 
@@ -37,6 +38,7 @@ max_preflight_iterations: ${MAX_PREFLIGHT_ITERATIONS:-$DEFAULT_MAX_PREFLIGHT_ITE
 max_pr_iterations: ${MAX_PR_ITERATIONS:-$DEFAULT_MAX_PR_ITERATIONS}
 skip_preflight: ${SKIP_PREFLIGHT:-false}
 skip_postflight: ${SKIP_POSTFLIGHT:-false}
+skip_runtime_testing: ${SKIP_RUNTIME_TESTING:-false}
 no_auto_pr: ${NO_AUTO_PR:-false}
 no_auto_deploy: ${NO_AUTO_DEPLOY:-false}
 headless: ${HEADLESS:-false}
@@ -48,16 +50,36 @@ EOF
 
 load_state() {
 	[[ -f "$STATE_FILE" ]] || return 1
-	# Single-pass parse of YAML frontmatter — safe variable assignment via declare
+	# Pre-initialize all state variables with safe defaults so that set -u does
+	# not abort when the state file is incomplete (missing fields are never set
+	# by the awk parse loop, leaving variables unbound).
+	PHASE=""
+	ACTIVE=""
+	ITERATION=""
+	STARTED_AT="unknown"
+	UPDATED_AT=""
+	PR_NUMBER=""
+	MAX_TASK_ITERATIONS="$DEFAULT_MAX_TASK_ITERATIONS"
+	MAX_PREFLIGHT_ITERATIONS="$DEFAULT_MAX_PREFLIGHT_ITERATIONS"
+	MAX_PR_ITERATIONS="$DEFAULT_MAX_PR_ITERATIONS"
+	SKIP_PREFLIGHT="false"
+	SKIP_POSTFLIGHT="false"
+	SKIP_RUNTIME_TESTING="false"
+	NO_AUTO_PR="false"
+	NO_AUTO_DEPLOY="false"
+	HEADLESS="${FULL_LOOP_HEADLESS:-false}"
+	SAVED_PROMPT=""
+	# Single-pass parse of YAML frontmatter — safe variable assignment via printf -v
 	local _key _val _line
 	while IFS= read -r _line; do
 		_key="${_line%%=*}"
 		_val="${_line#*=}"
 		# Allowlist: only set known state variables
 		case "$_key" in
-		PHASE | ACTIVE | ITERATION | MAX_TASK_ITERATIONS | MAX_PREFLIGHT_ITERATIONS | \
-			MAX_PR_ITERATIONS | SKIP_PREFLIGHT | SKIP_POSTFLIGHT | NO_AUTO_PR | \
-			NO_AUTO_DEPLOY | HEADLESS | PR_NUMBER)
+		PHASE | ACTIVE | ITERATION | STARTED_AT | UPDATED_AT | \
+			MAX_TASK_ITERATIONS | MAX_PREFLIGHT_ITERATIONS | \
+			MAX_PR_ITERATIONS | SKIP_PREFLIGHT | SKIP_POSTFLIGHT | SKIP_RUNTIME_TESTING | \
+			NO_AUTO_PR | NO_AUTO_DEPLOY | HEADLESS | PR_NUMBER)
 			printf -v "$_key" '%s' "$_val"
 			;;
 		esac
@@ -66,7 +88,6 @@ load_state() {
 		print toupper(k) "=" $2
 	}' "$STATE_FILE")
 	CURRENT_PHASE="${PHASE:-}"
-	HEADLESS="${HEADLESS:-false}"
 	SAVED_PROMPT=$(sed -n '/^---$/,/^---$/d; p' "$STATE_FILE")
 	return 0
 }
@@ -134,10 +155,26 @@ emit_deploy_phase() {
 	echo "Run setup.sh per full-loop.md guidance."
 }
 
-cmd_start() {
-	local prompt="$1"
-	shift
-	local background=false
+# Initialize option variables with defaults so set -u doesn't crash on
+# export when flags are not passed.
+_init_start_defaults() {
+	MAX_TASK_ITERATIONS="${MAX_TASK_ITERATIONS:-$DEFAULT_MAX_TASK_ITERATIONS}"
+	MAX_PREFLIGHT_ITERATIONS="${MAX_PREFLIGHT_ITERATIONS:-$DEFAULT_MAX_PREFLIGHT_ITERATIONS}"
+	MAX_PR_ITERATIONS="${MAX_PR_ITERATIONS:-$DEFAULT_MAX_PR_ITERATIONS}"
+	SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-false}"
+	SKIP_POSTFLIGHT="${SKIP_POSTFLIGHT:-false}"
+	SKIP_RUNTIME_TESTING="${SKIP_RUNTIME_TESTING:-false}"
+	NO_AUTO_PR="${NO_AUTO_PR:-false}"
+	NO_AUTO_DEPLOY="${NO_AUTO_DEPLOY:-false}"
+	DRY_RUN="${DRY_RUN:-false}"
+	_BACKGROUND=false
+	return 0
+}
+
+# Parse start subcommand options. Sets global option variables and _BACKGROUND.
+# Arguments: all remaining args after the prompt string.
+# Returns: 0 on success, 1 on unknown option.
+_parse_start_options() {
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--max-task-iterations)
@@ -160,6 +197,10 @@ cmd_start() {
 			SKIP_POSTFLIGHT=true
 			shift
 			;;
+		--skip-runtime-testing)
+			SKIP_RUNTIME_TESTING=true
+			shift
+			;;
 		--no-auto-pr)
 			NO_AUTO_PR=true
 			shift
@@ -177,7 +218,7 @@ cmd_start() {
 			shift
 			;;
 		--background | --bg)
-			background=true
+			_BACKGROUND=true
 			shift
 			;;
 		*)
@@ -186,6 +227,28 @@ cmd_start() {
 			;;
 		esac
 	done
+	return 0
+}
+
+# Launch the loop in the background via nohup.
+# Arguments: $1 — prompt string.
+_launch_background() {
+	local prompt="$1"
+	mkdir -p "$STATE_DIR"
+	export MAX_TASK_ITERATIONS MAX_PREFLIGHT_ITERATIONS MAX_PR_ITERATIONS
+	export SKIP_PREFLIGHT SKIP_POSTFLIGHT SKIP_RUNTIME_TESTING NO_AUTO_PR NO_AUTO_DEPLOY FULL_LOOP_HEADLESS="$HEADLESS"
+	nohup "$0" _run_foreground "$prompt" >"${STATE_DIR}/full-loop.log" 2>&1 &
+	echo "$!" >"${STATE_DIR}/full-loop.pid"
+	print_success "Background loop started (PID: $!). Use 'status' or 'logs' to monitor."
+	return 0
+}
+
+cmd_start() {
+	local prompt="$1"
+	shift
+
+	_init_start_defaults
+	_parse_start_options "$@" || return 1
 
 	[[ -z "$prompt" ]] && {
 		print_error "Usage: full-loop-helper.sh start \"<prompt>\" [options]"
@@ -210,13 +273,8 @@ cmd_start() {
 	save_state "task" "$prompt"
 	SAVED_PROMPT="$prompt"
 
-	if [[ "$background" == "true" ]]; then
-		mkdir -p "$STATE_DIR"
-		export MAX_TASK_ITERATIONS MAX_PREFLIGHT_ITERATIONS MAX_PR_ITERATIONS
-		export SKIP_PREFLIGHT SKIP_POSTFLIGHT NO_AUTO_PR NO_AUTO_DEPLOY FULL_LOOP_HEADLESS="$HEADLESS"
-		nohup "$0" _run_foreground "$prompt" >"${STATE_DIR}/full-loop.log" 2>&1 &
-		echo "$!" >"${STATE_DIR}/full-loop.pid"
-		print_success "Background loop started (PID: $!). Use 'status' or 'logs' to monitor."
+	if [[ "$_BACKGROUND" == "true" ]]; then
+		_launch_background "$prompt"
 		return 0
 	fi
 	emit_task_phase "$prompt"
@@ -316,17 +374,19 @@ Usage: full-loop-helper.sh <command> [options]
 Commands: start "<prompt>" | resume | status | cancel | logs [N] | help
 Options: --max-task-iterations N (50) | --max-preflight-iterations N (5)
   --max-pr-iterations N (20) | --skip-preflight | --skip-postflight
-  --no-auto-pr | --no-auto-deploy | --headless | --dry-run | --background
+  --skip-runtime-testing | --no-auto-pr | --no-auto-deploy
+  --headless | --dry-run | --background
 Phases: task -> preflight -> pr-create -> pr-review -> postflight -> deploy
 EOF
 }
 
 _run_foreground() {
 	local prompt="$1"
-	local pid_file="${STATE_DIR}/full-loop.pid"
-	# On exit (normal or error), clear the PID file so status/logs don't report
-	# a background loop that is no longer running.
-	trap 'rm -f "$pid_file"' EXIT
+	# Use a global for the trap — local variables are out of scope when the
+	# EXIT trap fires after the function returns (causes unbound variable
+	# crash under set -u).
+	_FG_PID_FILE="${STATE_DIR}/full-loop.pid"
+	trap 'rm -f "$_FG_PID_FILE"' EXIT
 	emit_task_phase "$prompt"
 	return 0
 }

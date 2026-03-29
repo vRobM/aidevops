@@ -7,6 +7,381 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-03-28
+
+### Fixed
+
+- detect stale Homebrew install during aidevops update (GH#11470) (#12106)
+
+## [3.5.0] - 2026-03-28
+
+### Changed
+
+- Refactor: flatten remaining nested dirs in tools/ (#12107)
+
+## [3.4.193] - 2026-03-28
+
+### Changed
+
+- Refactor: flatten remaining nested dirs in tools/ (#12107)
+
+## [3.4.0] - 2026-03-28
+
+### Changed
+
+- Refactor: merge Social-Media into Content, Sales+Marketing into Marketing-Sales (#11372)
+- Maintenance: update simplification state registry
+
+## [3.3.0] - 2026-03-28
+
+### Changed
+
+- Refactor: merge Video into Content, Accounts into Business (#11347)
+- Documentation: tighten opencode-github.md from 328 to 192 lines (41% reduction) (#11349)
+- Refactor: merge Video into Content, Accounts into Business
+
+## [3.2.9] - 2026-03-28
+
+### Changed
+
+- Refactor: complete .agents/ structure cleanup (#11304)
+- Documentation: simplify UGC & Video Scripts agent doc (439→350 lines) (#11297)
+- Maintenance: update simplification state registry
+
+## [3.2.7] - 2026-03-28
+
+### Fixed
+
+- always clean stale files during agent deployment (#11288)
+
+## [3.2.0] - 2026-03-28
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.1.442] - 2026-03-28
+
+### Changed
+
+- Maintenance: raise simplification open-issue cap from 100 to 500 (#11272)
+- Refactor: reorganise .agents/ structure for scalability (#11127)
+- Maintenance: raise simplification scan rate from 5 to 200 issues per run (#11126)
+- Documentation: codify .agents/ architecture conventions for scalability (#11124)
+
+### Fixed
+
+- run complexity scan every pulse cycle (15 min) instead of daily (#11271)
+
+## [3.1.439] - 2026-03-28
+
+### Fixed
+
+- wire cross-machine claim lock into deterministic dedup guard (GH#11086) (#11121)
+
+## [3.1.315] - 2026-03-27
+
+### Fixed
+
+- remove 500-line size gate from md simplification scan (t1679) (#6879)
+
+## [3.1.310] - 2026-03-27
+
+### Changed
+
+- Refactor: terse pass on build.txt and AGENTS.md — compress prose without losing rules (#6868)
+
+## [3.1.289] - 2026-03-27
+
+### Added
+
+- add Tabby terminal profile generator from repos.json (#6786)
+
+## [3.1.154] - 2026-03-25
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.1.106] - 2026-03-25
+
+### Added
+
+- extend complexity scan to .md agent docs, daily interval, longest-first (#5693)
+
+### Fixed
+
+- clarify advisory output string concatenation (PR #5689 follow-up) (#5691)
+- key commands shows 'aidevops security' not 'aidevops security scan'
+
+## [3.1.104] - 2026-03-25
+
+### Changed
+
+- Documentation: add asc-cli dependency check and update web apps section (#5690)
+
+## [3.1.94] - 2026-03-24
+
+### Changed
+
+- Refactor: reduce function complexity in oauth-pool-helper.sh (GH#5643) (#5654)
+
+## [3.1.89] - 2026-03-24
+
+### Changed
+
+- Refactor: disable proactive refresh, keep as commented-out option (#5613)
+
+## [3.1.88] - 2026-03-24
+
+### Fixed
+
+- handle 401/403 (server-side token revocation) in OAuth pool with auto-refresh (#5612)
+
+## [3.1.80] - 2026-03-23
+
+### Changed
+
+- Maintenance: add OpenCode to NPM_TOOLS with bun/npm auto-detection (#5570)
+
+### Fixed
+
+- add cooldown check to oauth-pool fallback account selection (#5552) (#5567)
+
+## [3.1.79] - 2026-03-23
+
+### Fixed
+
+- inject OAuth tokens via env vars — works on all OpenCode versions (#5561)
+
+## [3.1.78] - 2026-03-23
+
+### Added
+
+- add aidevops opencode-sandbox command for isolated version testing (#5548)
+
+## [3.1.77] - 2026-03-23
+
+### Changed
+
+- Maintenance: pin OpenCode to 1.2.27 — versions >1.2.27 break OAuth (#5547)
+
+## [3.1.76] - 2026-03-23
+
+### Fixed
+
+- Homebrew wrapper prefers git repo aidevops.sh over installed snapshot (#5545)
+
+## [3.1.75] - 2026-03-23
+
+### Fixed
+
+- correct OAuth setup docs — opencode auth login is API key only (#5544)
+
+## [3.1.74] - 2026-03-23
+
+### Fixed
+
+- npm wrapper prefers git repo aidevops.sh over bundled copy (#5543)
+
+## [3.1.73] - 2026-03-23
+
+### Changed
+
+- Maintenance: remove opencode-antigravity-auth plugin on update (#5542)
+
+## [3.1.72] - 2026-03-23
+
+### Fixed
+
+- pool injection idle status + headless dispatch timing race (#5541)
+- restore cmd_rotate (auth.json), cmd_status, cmd_assign_pending lost in PR #5535 merge (#5536)
+
+## [3.1.71] - 2026-03-23
+
+### Changed
+
+- Documentation: mention @auth-troubleshooting agent and free model fallback in README (#5539)
+
+## [3.1.70] - 2026-03-23
+
+### Changed
+
+- Refactor: move auth troubleshooting to subagent, pointer in AGENTS.md (#5538)
+
+## [3.1.69] - 2026-03-23
+
+### Added
+
+- add status/assign-pending commands and auth troubleshooting docs (#5537)
+
+## [3.1.68] - 2026-03-23
+
+### Added
+
+- add aidevops model-accounts-pool CLI command with rotate and reset-cooldowns (#5535)
+
+## [3.1.63] - 2026-03-22
+
+### Added
+
+- add process-approved command to draft-response-helper
+
+### Changed
+
+- Maintenance: claim t1556
+
+### Fixed
+
+- use post-action timestamp for self-consumption loop guard (#5518)
+- capture gh api error output in draft-response subscription warning (GH#5511) (#5514)
+- simplify draft_responses feature flag to default-true pattern (GH#5508) (#5513)
+- simplify draft_responses feature flag check per Gemini review (GH#5492) (#5500)
+- remove unused print_error stub from test-migrate-orphaned-supervisor.sh (#5501)
+
+## [3.1.56] - 2026-03-22
+
+### Changed
+
+- Documentation: update browser-use doc to v0.12.x API (Tools, CLI, Cloud, ChatBrowserUse) (#5463)
+
+### Fixed
+
+- skip launchd plist reload when content unchanged to preserve StartInterval timers (#5464)
+
+## [3.1.55] - 2026-03-22
+
+### Fixed
+
+- detect default branch for profile repo push instead of hardcoding main (#5462)
+
+## [3.1.43] - 2026-03-21
+
+### Changed
+
+- Performance: hoist statusOrder constant to module scope in provider-auth (#5435)
+- Refactor: simplify open_browser() with for-loop over browser commands (#5410)
+
+### Fixed
+
+- re-enable auth hook as single object (not array) (#5444)
+- store claudebar release URL in variable for maintainability (#5434)
+
+## [3.1.42] - 2026-03-21
+
+### Added
+
+- add ClaudeBar to setup and upstream watch (#5420)
+
+### Changed
+
+- Maintenance: fix spelling optimisation→optimization in social-media.md (#5414)
+
+### Fixed
+
+- sync TOON plan status/phase with human-readable Completed headers (#5421)
+- use jq // empty and remove 2>/dev/null on repos.json reads (#5417)
+- harden unknown status sorting and remove dead constants in provider-auth (#5412)
+- robust Status-line lookup in sync_plans_status (GH#5392) (#5411)
+- use // empty in jq to eliminate null string check (GH#5385) (#5419)
+
+## [3.1.41] - 2026-03-21
+
+### Fixed
+
+- install profile update job whenever gh is available, not only when profile repo exists (#5409)
+
+## [3.1.40] - 2026-03-21
+
+### Added
+
+- auto-configure opencode-cursor-oauth plugin in setup (#5408)
+
+### Fixed
+
+- use conventional FIXME tag for disabled auth hook workaround (#5400)
+
+## [3.1.38] - 2026-03-21
+
+### Added
+
+- add Cursor support to oauth-pool-helper.sh and /models-pool-check (#5384)
+
+### Changed
+
+- Documentation: add routing rules and provider-explicit examples to models-pool-check (#5379)
+
+### Fixed
+
+- address remaining CodeRabbit findings from PR #5375 (#5377)
+
+## [3.1.37] - 2026-03-21
+
+### Changed
+
+- Documentation: rewrite /models-pool-check for zero-knowledge UX (#5376)
+
+## [3.1.36] - 2026-03-21
+
+### Added
+
+- shell-based OAuth pool management and stale provider name fix (#5375)
+
+## [3.1.35] - 2026-03-21
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.1.34] - 2026-03-21
+
+### Added
+
+- /models-pool-check command, fix pool model names, post-auth guidance (#5373)
+
+## [3.1.33] - 2026-03-21
+
+### Added
+
+- add Cursor CLI to setup and tool version checks (#5361)
+
+### Changed
+
+- Maintenance: mark t1549 and t1550 as completed (PRs #5367, #5369 merged)
+- Documentation: add model tier and auto-dispatch default guidance to Planning section (#5368)
+
+### Fixed
+
+- dynamic OAuth User-Agent detection and curl-based token endpoints (#5371)
+- make profile update self-healing when repos.json entry is missing (#5372)
+- remove job name field so check name matches branch protection (GH#5365) (#5366)
+
+## [3.1.32] - 2026-03-21
+
+### Changed
+
+- Maintenance: add #auto-dispatch to t1549 and t1550 for pulse pickup
+- Maintenance: add model tiers to t1549 (opus) and t1550 (sonnet)
+- Maintenance: add Cursor OAuth pool and model routing tasks (t1549, t1550)
+
+### Fixed
+
+- show clean placeholder when profile stats have no local data (#5360)
+
+## [3.1.30] - 2026-03-21
+
+### Changed
+
+- Maintenance: archive completed plans from PLANS.md and add cleanup helper (#5355)
+
+### Fixed
+
+- make profile README init resilient to missing repos and stale entries (#5358)
+- revert plans-cleanup, add maintainer gate, label protection, and PLANS.md auto-sync (#5357)
+
 ## [3.1.28] - 2026-03-20
 
 ### Changed

@@ -5,7 +5,7 @@ Complex, multi-session work requiring research, design decisions, and detailed t
 Based on [OpenAI's PLANS.md](https://cookbook.openai.com/articles/codex_exec_plans) and [plan.md](https://github.com/Digital-Tvilling/plan.md), with TOON-enhanced parsing.
 
 <!--TOON:meta{version,format,updated}:
-1.0,plans-md+toon,2025-12-20T00:00:00Z
+1.0,plans-md+toon,2026-03-21T00:00:00Z
 -->
 
 ## Format
@@ -22,11 +22,50 @@ Each plan includes:
 
 ## Active Plans
 
+### [2026-03-27] Context Token Optimization — Reduce Session Baseline
+
+**Status:** In Progress (Phase 1/3)
+**Estimate:** ~11h
+**TODOs:** t1678, t1679, t1680, t1681, t1682
+
+**Problem:** Session baseline grew from ~9.5k tokens (Mar 1) to ~39k tokens (Mar 27) before the first user message. User reported "hi" used to cost <20k, now costs 40k+. This is a compounding cost — every message pays for the base context.
+
+**Root causes identified:**
+1. **build.txt** grew 2.5x: 5,649 → 13,973 tokens (Mar 1-27). Each incident/learning added inline rules.
+2. **.agents/AGENTS.md** grew 2x: 3,888 → 7,789 tokens. Domain index, self-improvement, agent routing sections expanded.
+3. **12 repo-local .opencode/tool/*.ts files** injected ~3-4k tokens of tool schemas — 11 were pure shell script wrappers.
+4. **7 plugin tools** (tools.mjs) add ~3.2k tokens — some may be consolidatable.
+5. **Errored MCP servers** (auggie, cloudflare, playwright) may inject dead schemas.
+
+**Phase 1 — Quick wins (done):**
+- [x] Disabled 11 .opencode/tool/ shell wrappers (t1678 partial). Saved ~3-4k tokens. Verified: 122k → 39k mid-session, fresh session 38,885 tokens.
+- [x] Discovered `system-cleanup` tool was actually broken (wrong arg format) — bash direct is better.
+
+**Phase 2 — Progressive loading (t1679, t1680):**
+- Move rarely-used build.txt sections to on-demand subagent docs (~3,800 tokens)
+- Move AGENTS.md large sections to on-demand references (~3,500 tokens)
+- Target: ~14k token reduction from prompt files
+
+**Phase 3 — Plugin and MCP cleanup (t1681, t1682):**
+- Consolidate plugin tools (7 → fewer)
+- Fix or remove errored MCP server registrations
+
+**Decision log:**
+- 2026-03-27: Keep `ai-research.ts` as only repo-local tool — it has real logic (OAuth, API calls, rate limiting, domain mapping). All others are bash-replaceable.
+- 2026-03-27: Use `.disabled` extension for reversibility during testing. Delete after verification.
+- 2026-03-27: build.txt and AGENTS.md are "protected" — changes require interactive session with user decisions, not auto-dispatch.
+
+**Surprises:**
+- The 122k → 39k drop was mostly conversation accumulation, not tool schemas. Actual tool schema savings were ~3-4k tokens — still meaningful but not the 83k implied by the raw numbers.
+- The `system-cleanup` tool had a stale enum that didn't match the script's actual interface. Tool wrappers can mask the real CLI, making them worse than direct bash.
+
 ### [2026-03-14] Restore OpenAI Codex and Enforce Model ID Conventions
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~2.5h
-**TODO:** t1483
+**TODO:** t1483 ✅
+**PR:** #4660
+**Issue:** GH#4656 CLOSED
 **Logged:** 2026-03-14
 **Trigger:** User review of PR#4641 and PR#4647 — both made incorrect model ID changes based on false assumptions.
 
@@ -57,14 +96,16 @@ Fix two classes of model ID mismanagement by pulse workers, and make the default
 
 ### [2026-03-12] Agent Runtime Sync After Merge/Release
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~3h (ai:1.75h test:45m read:30m)
-**TODO:** t1453
+**TODO:** t1453 ✅
+**PR:** #4256
+**Issue:** GH#4205 CLOSED
 **Logged:** 2026-03-12
 **Trigger:** Issue [GH#4205](https://github.com/marcusquinn/aidevops/issues/4205) plus observed post-release drift where new SEO subagent and slash-command docs were present in repo but missing in `~/.aidevops/agents/` until manual `rsync`.
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p046,Agent Runtime Sync After Merge/Release,planning,0,3,,deployment|automation|release|runtime-drift,3h,1.75h,45m,30m,2026-03-12T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p046,Agent Runtime Sync After Merge/Release,completed,3,3,,deployment|automation|release|runtime-drift,3h,1.75h,45m,30m,2026-03-12T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -106,14 +147,16 @@ This is a framework reliability issue, not only a one-off docs problem. If runti
 
 ### [2026-03-11] gh Mutation `/bin/zsh` `posix_spawn` Failure
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~3h (ai:2h test:45m read:15m)
-**TODO:** t1434
+**TODO:** t1434 ✅
+**PR:** #4127
+**Issue:** GH#4122 CLOSED
 **Logged:** 2026-03-11
 **Trigger:** Provider-aware headless runtime release session hit `gh` write-path failures during merge and issue lifecycle steps.
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p045,gh Mutation /bin/zsh posix_spawn Failure,planning,0,3,,github|release|orchestration|bugfix,3h,2h,45m,15m,2026-03-11T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p045,gh Mutation /bin/zsh posix_spawn Failure,completed,3,3,,github|release|orchestration|bugfix,3h,2h,45m,15m,2026-03-11T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -154,14 +197,16 @@ This is a framework-level reliability issue because full-loop, release, and supe
 
 ### [2026-03-09] Grith-Inspired Security Enhancements
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~18h (ai:14h test:2.5h read:1.5h)
-**TODO:** t1428 (parent), t1428.1-t1428.5 (subtasks)
+**TODO:** t1428 ✅ (parent), t1428.1-t1428.5 ✅ (subtasks)
+**PRs:** #4030, #4031, #4035, #4036, #4042
+**Issue:** GH#4025 CLOSED
 **Logged:** 2026-03-09
 **Inspiration:** [grith.ai](https://grith.ai) — zero-trust AI agent security proxy. Blog analysis of 9 posts covering: 7-agent security audit, MCP tool poisoning, skill supply chain attacks, Clinejection, DNS exfiltration (CVE-2025-55284), IDEsaster 24 CVEs, OpenClaw bans, vibe coding OSS impact.
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p044,Grith-Inspired Security Enhancements,planning,0,5,,security|prompt-injection|mcp|network|observability,18h,14h,2.5h,1.5h,2026-03-09T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p044,Grith-Inspired Security Enhancements,completed,5,5,,security|prompt-injection|mcp|network|observability,18h,14h,2.5h,1.5h,2026-03-09T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -199,14 +244,16 @@ Gap analysis of aidevops security stack against Grith.ai's zero-trust AI agent s
 
 ### [2026-03-07] Convos Encrypted Messaging Agent
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~2h (ai:1.5h read:30m)
-**TODO:** t1414 (parent), t1414.1-t1414.2 (subtasks)
+**TODO:** t1414 ✅ (parent), t1414.1-t1414.2 ✅ (subtasks)
+**PRs:** #3140, #3143, #3187
+**Issue:** GH#3126 CLOSED
 **Logged:** 2026-03-07
 **Upstream skill:** `https://convos.org/skill.md`
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_read,logged}:
-p042,Convos Encrypted Messaging Agent,planning,0,2,,agent|communications|xmtp|convos,2h,1.5h,30m,2026-03-07T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_read,logged,completed}:
+p042,Convos Encrypted Messaging Agent,completed,2,2,,agent|communications|xmtp|convos,2h,1.5h,30m,2026-03-07T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -235,15 +282,17 @@ The skill is published at `https://convos.org/skill.md` — a raw URL, not a Git
 
 ### [2026-03-07] URL-Based Skill Update Checking for Non-GitHub Sources
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~3h (ai:2.5h test:30m)
-**TODO:** t1415 (parent), t1415.1-t1415.3 (subtasks)
+**TODO:** t1415 ✅ (parent), t1415.1-t1415.3 ✅ (subtasks)
+**PRs:** #3139, #3141, #3886
+**Issue:** GH#3131 CLOSED
 **Logged:** 2026-03-07
 **Depends on:** None
 **Enables:** t1414.3 (Convos upstream tracking)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,logged}:
-p043,URL-Based Skill Update Checking,planning,0,3,,enhancement|skills|infrastructure,3h,2.5h,30m,2026-03-07T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,logged,completed}:
+p043,URL-Based Skill Update Checking,completed,3,3,,enhancement|skills|infrastructure,3h,2.5h,30m,2026-03-07T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -285,15 +334,17 @@ Existing GitHub-sourced skills continue using `upstream_commit` — no breaking 
 
 ### [2026-03-06] Recursive Task Decomposition for Dispatch — Classify/Decompose Pipeline
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~10h (ai:7h test:2h read:1h)
-**TODO:** t1408 (parent), t1408.1-t1408.5 (subtasks)
+**TODO:** t1408 ✅ (parent), t1408.1-t1408.5 ✅ (subtasks)
+**PRs:** #2989, #2997, #2999, #3000, #3091
+**Issue:** GH#2983 CLOSED
 **Logged:** 2026-03-06
 **Brief:** [todo/tasks/t1408-brief.md](tasks/t1408-brief.md)
 **Inspired by:** [TinyAGI/fractals](https://github.com/TinyAGI/fractals) (recursive agentic task orchestrator, 146 stars, MIT)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p041,Recursive Task Decomposition for Dispatch,planning,0,3,,plan|feature|orchestration|decomposition,10h,7h,2h,1h,2026-03-06T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p041,Recursive Task Decomposition for Dispatch,completed,3,3,,plan|feature|orchestration|decomposition,10h,7h,2h,1h,2026-03-06T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -428,14 +479,16 @@ t1408.1 runs first (no dependencies). t1408.2 and t1408.3 can start after t1408.
 
 ### [2026-03-05] LLM Evaluation Suite — Benchmarking, Evaluators, Datasets, and Prompt Version Tracking
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~10h (ai:7h test:1.25h read:1h doc:0.75h)
-**TODO:** t1393, t1394, t1395, t1396
+**TODO:** t1393 ✅, t1394 ✅, t1395 ✅, t1396 ✅
+**PRs:** #2914, #2916, #2917, #3079
+**Issues:** GH#2914 CLOSED, GH#2916 CLOSED, GH#2917 CLOSED
 **Logged:** 2026-03-05
 **Briefs:** [t1393](tasks/t1393-brief.md), [t1394](tasks/t1394-brief.md), [t1395](tasks/t1395-brief.md), [t1396](tasks/t1396-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p040,LLM Evaluation Suite,planning,0,4,,plan|feature|evaluation|model-comparison|observability,10h,7h,1.25h,1h,2026-03-05T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p040,LLM Evaluation Suite,completed,4,4,,plan|feature|evaluation|model-comparison|observability,10h,7h,1.25h,1h,2026-03-05T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -524,11 +577,11 @@ A LangWatch subagent doc (`services/monitoring/langwatch.md`) was also created i
 
 ### [2026-03-05] Fix Runaway Memory Consumption — Process Guards, ShellCheck Limits, Session Awareness
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~6h (ai:4h test:1.5h read:30m)
-**TODO:** t1398 (parent), t1398.1-t1398.5 (subtasks)
+**TODO:** t1398 ✅ (parent), t1398.1-t1398.5 ✅ (subtasks)
 **Logged:** 2026-03-05
-**Issue:** [GH#2854](https://github.com/marcusquinn/aidevops/issues/2854)
+**Issue:** [GH#2854](https://github.com/marcusquinn/aidevops/issues/2854) CLOSED
 **Replaces:** PR #2792 (declined)
 
 #### Purpose
@@ -565,14 +618,14 @@ Root-cause fix for the March 3 kernel panic and ongoing memory pressure. Analysi
 
 ### [2026-03-02] Prompt Injection Scanner — Tool-Agnostic Defense for aidevops and Agentic Apps
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~7.5h (ai:5.5h test:1h read:1h)
-**TODO:** t1375 (parent), t1375.1-t1375.5 (subtasks)
+**TODO:** t1375 ✅ (parent), t1375.1-t1375.5 ✅ (subtasks)
 **Logged:** 2026-03-02
 **Brief:** [todo/tasks/t1375-brief.md](tasks/t1375-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p039,Prompt Injection Scanner,planning,0,3,,plan|feature|security|prompt-injection,7.5h,5.5h,1h,1h,2026-03-02T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p039,Prompt Injection Scanner,completed,3,3,,plan|feature|security|prompt-injection,7.5h,5.5h,1h,1h,2026-03-02T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -685,14 +738,14 @@ t1375.1 and t1375.2 can run in parallel. t1375.3 and t1375.4 depend on the agent
 
 ### [2026-03-01] Vector Search Agent — zvec and Per-Tenant RAG for SaaS
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~7h (ai:5h test:1h read:1h)
-**TODO:** t1370 (parent), t1370.1-t1370.5 (subtasks)
+**TODO:** t1370 ✅ (parent), t1370.1-t1370.5 ✅ (subtasks)
 **Logged:** 2026-03-01
 **Brief:** [todo/tasks/t1370-brief.md](tasks/t1370-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p037,Vector Search Agent,planning,0,2,,plan|feature|database|vector-search|rag,7h,5h,1h,1h,2026-03-01T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p037,Vector Search Agent,completed,2,2,,plan|feature|database|vector-search|rag,7h,5h,1h,1h,2026-03-01T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -831,14 +884,14 @@ t1370.1 and t1370.2 can run in parallel. t1370.3 depends on the decision guide s
 
 ### [2026-03-01] UI/UX Inspiration Skill and Brand Identity System
 
-**Status:** Planning
-**Estimate:** ~11.75h (ai:8h test:2h read:1.75h)
-**TODO:** t1371 (catalogue), t1372 (skill + interview), t1373 (brand identity), t1374 (wiring)
+**Status:** Completed
+**Estimate:** ~10h (ai:8h test:1h read:1h)
+**TODO:** t1371 ✅ (catalogue), t1372 ✅ (skill + interview), t1373 ✅ (brand identity), t1374 ✅ (wiring)
 **Logged:** 2026-03-01
 **Briefs:** [t1371](tasks/t1371-brief.md), [t1372](tasks/t1372-brief.md), [t1373](tasks/t1373-brief.md), [t1374](tasks/t1374-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p038,UI/UX Inspiration Skill and Brand Identity System,planning,0,3,,plan|feature|design|content,11.75h,8h,2h,1.75h,2026-03-01T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p038,UI/UX Inspiration Skill and Brand Identity System,completed,3,3,,plan|feature|design|content,11.75h,8h,2h,1.75h,2026-03-01T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -972,14 +1025,14 @@ t1371 runs first (no dependencies). t1373 can start after t1371 (needs catalogue
 
 ### [2026-03-01] PaddleOCR Integration — Screenshot and Scene Text OCR
 
-**Status:** Planning
-**Estimate:** ~5h (ai:3.5h test:1h read:30m)
-**TODO:** t1369 (parent), t1369.1-t1369.5 (subtasks)
+**Status:** Completed
+**Estimate:** ~8h (ai:6h test:1h read:1h)
+**TODO:** t1369 ✅ (parent), t1369.1-t1369.5 ✅ (subtasks)
 **Logged:** 2026-03-01
 **Brief:** [todo/tasks/t1369-brief.md](tasks/t1369-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p036,PaddleOCR Integration,planning,0,2,,plan|feature|ocr|document,5h,3.5h,1h,30m,2026-03-01T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p036,PaddleOCR Integration,completed,2,2,,plan|feature|ocr|document,5h,3.5h,1h,30m,2026-03-01T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -1064,15 +1117,15 @@ t1369.1-t1369.3 can run in parallel. t1369.4 depends on docs being written. t136
 
 ### [2026-02-28] Multi-Model Orchestration Improvements — Parallel Verification + Bundle Presets
 
-**Status:** Planning
-**Estimate:** ~20h (ai:14h test:4h read:2h)
-**TODO:** t1364 (parent), t1364.1-t1364.3 (verification), t1364.4-t1364.6 (bundles)
+**Status:** Completed
+**Estimate:** ~10h (ai:7h test:2h read:1h)
+**TODO:** t1364 ✅ (parent), t1364.1-t1364.3 ✅ (verification), t1364.4-t1364.6 ✅ (bundles)
 **Logged:** 2026-02-28
 **Brief:** [todo/tasks/t1364-brief.md](tasks/t1364-brief.md)
 **Research:** [#2558](https://github.com/marcusquinn/aidevops/issues/2558) — Perplexity Computer + Microsoft Amplifier comparison
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p035,Multi-Model Orchestration Improvements,planning,0,2,,plan|feature|orchestration|models,20h,14h,4h,2h,2026-02-28T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p035,Multi-Model Orchestration Improvements,completed,2,2,,plan|feature|orchestration|models,20h,14h,4h,2h,2026-02-28T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -1144,14 +1197,14 @@ Workstream 2: Bundle-Based Project Presets
 
 ### [2026-02-27] Mission System — Autonomous Long-Running Project Orchestration
 
-**Status:** Planning
-**Estimate:** ~28h core + ~24h dependent features = ~52h total
-**TODO:** t1357 (core), t1358-t1362 (dependent features)
+**Status:** Completed
+**Estimate:** ~28h (ai:20h test:5h read:3h)
+**TODO:** t1357 ✅ (core), t1358 ✅-t1362 ✅ (dependent features)
 **Logged:** 2026-02-27
 **Brief:** [todo/tasks/t1357-brief.md](tasks/t1357-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p034,Mission System,planning,0,3,,plan|feature|orchestration|mission,52h,38h,10h,4h,2026-02-27T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p034,Mission System,completed,3,3,,plan|feature|orchestration|mission,52h,38h,10h,4h,2026-02-27T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -1274,14 +1327,14 @@ Phase 4: COMPLETION
 
 ### [2026-02-27] Conversational Memory and Entity Relationship System
 
-**Status:** Planning
+**Status:** Completed
 **Estimate:** ~27h (ai:20h test:4h read:3h)
-**TODO:** t1363
+**TODO:** t1363 ✅
 **Logged:** 2026-02-27
 **Brief:** [todo/tasks/t1363-brief.md](tasks/t1363-brief.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged}:
-p035,Conversational Memory Entity Relationship System,planning,0,3,,plan|feature|memory|entity|communications,27h,20h,4h,3h,2026-02-27T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,completed}:
+p035,Conversational Memory Entity Relationship System,completed,3,3,,plan|feature|memory|entity|communications,27h,20h,4h,3h,2026-02-27T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -1813,8 +1866,8 @@ Evaluate oh-my-pi's YAML-defined swarm orchestration with `reports_to`/`waits_fo
 **TODO:** t1289, t1290, t1291, t1292, t1293
 **Logged:** 2026-02-21
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p027,Cloudflare Code Mode MCP Integration,planning,0,4,,feature|mcp|cloudflare|agent,4h,3h,1h,0m,2026-02-21T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p027,Cloudflare Code Mode MCP Integration,completed,4,4,,feature|mcp|cloudflare|agent,4h,3h,1h,0m,2026-02-21T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -1949,8 +2002,8 @@ MCP config:
 **TODO:** t1288, t1288.1, t1288.2, t1288.3, t1288.4, t1288.5, t1288.6
 **Logged:** 2026-02-21
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p026,OpenAPI Search MCP Integration,planning,0,6,,feature|mcp|agent|context,2h,1.5h,30m,0m,2026-02-21T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p026,OpenAPI Search MCP Integration,completed,6,6,,feature|mcp|agent|context,2h,1.5h,30m,0m,2026-02-21T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -2050,8 +2103,8 @@ This is valuable when agents need to discover or understand third-party APIs wit
 **TODO:** t1294, t1294.1, t1294.2, t1294.3, t1294.4, t1294.5
 **Logged:** 2026-02-21
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p025,MCPorter MCP Toolkit Agent,planning,0,5,,feature|mcp|agent,4h,3h,1h,0m,2026-02-21T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p025,MCPorter MCP Toolkit Agent,completed,5,5,,feature|mcp|agent,4h,3h,1h,0m,2026-02-21T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -2139,8 +2192,8 @@ MCPorter complements (does not replace) existing infrastructure:
 **TODO:** t1281, t1282, t1283
 **Logged:** 2026-02-21
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p024,Context Optimisation: Slim Always-Loaded Harness,planning,0,3,,refactor|context|token-efficiency|progressive-disclosure,9h,7h,1.5h,30m,2026-02-21T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p024,Context Optimisation: Slim Always-Loaded Harness,completed,3,3,,refactor|context|token-efficiency|progressive-disclosure,9h,7h,1.5h,30m,2026-02-21T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -3242,8 +3295,8 @@ stash-audit-helper.sh clean --dry-run # Show what would be dropped
 **Estimate:** ~8h (ai:6h test:2h)
 **TODO:** t311
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p029,Modularise Oversized Shell Scripts,planning,0,5,,refactor|quality|architecture|shell,8h,6h,2h,30m,2026-02-12T02:30Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p029,Modularise Oversized Shell Scripts,completed,5,5,,refactor|quality|architecture|shell,8h,6h,2h,30m,2026-02-12T02:30Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -3334,8 +3387,8 @@ scripts/
 **Estimate:** ~2h (ai:1.5h test:25m read:5m)
 **TODO:** t214
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p027,Email Testing Suite,planning,0,4,,email|testing|services|playwright|eoa,2h,1.5h,25m,5m,2026-02-10T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p027,Email Testing Suite,completed,4,4,,email|testing|services|playwright|eoa,2h,1.5h,25m,5m,2026-02-10T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -3456,8 +3509,8 @@ Add comprehensive email testing capabilities to aidevops, covering both visual r
 **Estimate:** ~2.5h (ai:2h test:25m read:5m)
 **TODO:** t215
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p028,Accessibility & Contrast Testing,planning,0,5,,accessibility|testing|wcag|contrast|wave|axe-core|lighthouse,2.5h,2h,25m,5m,2026-02-10T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p028,Accessibility & Contrast Testing,completed,5,5,,accessibility|testing|wcag|contrast|wave|axe-core|lighthouse,2.5h,2h,25m,5m,2026-02-10T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -3603,8 +3656,8 @@ Large text = >= 18pt (24px) or >= 14pt (18.66px) bold.
 **Status:** Completed
 **Estimate:** ~8h (ai:5h test:2h read:1h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p026,Content Creation Agent Architecture,planning,0,5,,content|architecture|multimedia|agents,8h,5h,2h,1h,2026-02-09T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p026,Content Creation Agent Architecture,completed,5,5,,content|architecture|multimedia|agents,8h,5h,2h,1h,2026-02-09T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -3841,8 +3894,8 @@ m120,p025,Phase 7: Test + enrich existing 46 issues,15m,,2026-02-08T00:00Z,,pend
 **Status:** Completed
 **Estimate:** ~1d (ai:6h test:3h read:3h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p024,Plugin System for Private Extension Repos,planning,0,5,,architecture|plugins|private-repos|extensibility,1d,6h,3h,3h,2026-02-07T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p024,Plugin System for Private Extension Repos,completed,5,5,,architecture|plugins|private-repos|extensibility,1d,6h,3h,3h,2026-02-07T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4010,8 +4063,8 @@ m113,p024,Phase 5: Scaffold aidevops-pro and aidevops-anon repos,2h,,2026-02-07T
 **Status:** Completed
 **Estimate:** ~3d (ai:1.5d test:1d read:0.5d)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p023,Codebase Quality Hardening,planning,0,14,,quality|hardening|shell|security|testing|ci,3d,1.5d,1d,0.5d,2026-02-07T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p023,Codebase Quality Hardening,completed,14,14,,quality|hardening|shell|security|testing|ci,3d,1.5d,1d,0.5d,2026-02-07T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4121,8 +4174,8 @@ Address findings from Claude Opus 4.6 full codebase review. Harden shell script 
 **Status:** Completed
 **Estimate:** ~1.5d (ai:8h test:4h read:2h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p022,Cross-Provider Model Routing with Fallbacks,planning,0,8,,orchestration|multi-model|routing|fallback|opencode,1.5d,8h,4h,2h,2026-02-06T22:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p022,Cross-Provider Model Routing with Fallbacks,completed,8,8,,orchestration|multi-model|routing|fallback|opencode,1.5d,8h,4h,2h,2026-02-06T22:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4255,8 +4308,8 @@ s016,p022,Duplicate TOON milestone IDs m095-097 between p019 and p021,Both plans
 **Status:** Completed
 **Estimate:** ~2d (ai:1d test:4h read:4h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p021,gopass Integration & Credentials Rename,planning,0,3,,security|credentials|gopass|rename,2d,1d,4h,4h,2026-02-06T20:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p021,gopass Integration & Credentials Rename,completed,3,3,,security|credentials|gopass|rename,2d,1d,4h,4h,2026-02-06T20:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4338,8 +4391,8 @@ d031,p021,Build thin shell wrapper not fork psst,AI-native gap is ~50 lines of s
 **Status:** Completed
 **Estimate:** ~4h (ai:2h test:1h read:1h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p016,Install Script Integrity Hardening,planning,0,4,,security|supply-chain|setup,4h,2h,1h,1h,2026-02-03T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p016,Install Script Integrity Hardening,completed,4,4,,security|supply-chain|setup,4h,2h,1h,1h,2026-02-03T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4388,8 +4441,8 @@ m087,p016,Phase 4: Update docs/tests and verify behavior,30m,,2026-02-03T00:00Z,
 **Status:** Completed
 **Estimate:** ~8h (ai:5h test:2h read:1h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p018,Autonomous Supervisor Loop,planning,0,7,,orchestration|runners|autonomy,8h,5h,2h,1h,2026-02-06T04:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p018,Autonomous Supervisor Loop,completed,7,7,,orchestration|runners|autonomy,8h,5h,2h,1h,2026-02-06T04:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4501,8 +4554,8 @@ m090,p017,Phase 3: Add reset/clear UI flow and verify behavior,45m,5m,2026-02-03
 **Estimate:** ~2d (ai:1d test:0.5d read:0.5d)
 **Architecture:** [.agents/build-mcp/aidevops-plugin.md](../.agents/build-mcp/aidevops-plugin.md)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p001,aidevops-opencode Plugin,planning,0,4,,opencode|plugin,2d,1d,0.5d,0.5d,2025-12-21T01:50Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p001,aidevops-opencode Plugin,completed,4,4,,opencode|plugin,2d,1d,0.5d,0.5d,2025-12-21T01:50Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4648,8 +4701,8 @@ d003,p002,Keep original Python implementation,JSON parsing cleaner in Python - o
 **Status:** Completed
 **Estimate:** ~4h (ai:2h test:1h read:1h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p003,Evaluate Merging build-agent and build-mcp into aidevops,planning,0,3,,architecture|agents,4h,2h,1h,1h,2025-12-21T14:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p003,Evaluate Merging build-agent and build-mcp into aidevops,completed,3,3,,architecture|agents,4h,2h,1h,1h,2025-12-21T14:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4713,8 +4766,8 @@ d002,p017,Clear input after token set,Prevents token sitting in inspectable inpu
 **Estimate:** ~3d (ai:1.5d test:1d read:0.5d)
 **Source:** [pontusab's X post](https://x.com/pontusab/status/2002345525174284449)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p004,OCR Invoice/Receipt Extraction Pipeline,planning,0,5,,accounting|ocr|automation,3d,1.5d,1d,0.5d,2025-12-21T22:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p004,OCR Invoice/Receipt Extraction Pipeline,completed,5,5,,accounting|ocr|automation,3d,1.5d,1d,0.5d,2025-12-21T22:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -4984,8 +5037,8 @@ s023,p005,6h estimate was 14x over (actual 25m),All 4 phases in single session,A
 **Estimate:** ~2d (ai:1d test:0.5d read:0.5d)
 **Source:** [TheCraigHewitt/seomachine](https://github.com/TheCraigHewitt/seomachine)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p007,SEO Machine Integration for aidevops,planning,0,5,,seo|content|agents,2d,1d,0.5d,0.5d,2025-12-21T15:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p007,SEO Machine Integration for aidevops,completed,5,5,,seo|content|agents,2d,1d,0.5d,0.5d,2025-12-21T15:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -5100,8 +5153,8 @@ d010,p007,Split agents between content/ and seo/ folders,Writing/editing belongs
 **Status:** Superseded (Plan+ merged into Build+; OpenCode dropped in favour of Claude Code)
 **Estimate:** ~3h (ai:1.5h test:1h read:30m)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p008,Enhance Plan+ and Build+ with OpenCode's Latest Features,planning,0,4,,opencode|agents|enhancement,3h,1.5h,1h,30m,2025-12-21T04:30Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p008,Enhance Plan+ and Build+ with OpenCode's Latest Features,superseded,0,4,,opencode|agents|enhancement,3h,1.5h,1h,30m,2025-12-21T04:30Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -5356,23 +5409,7 @@ disc001,p009,Implementation faster than estimated,All core functionality already
 p009,beads-sync-helper.sh; todo-ready.sh; beads.md subagent; blocked-by/blocks syntax; hierarchical IDs; TOON schema; setup.sh integration; AGENTS.md docs,Robust sync script; comprehensive docs; seamless integration,Add optional UI installation to setup.sh,2d,1.5d,-25,1
 -->
 
-<!--TOON:active_plans[15]{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p021,gopass Integration & Credentials Rename,planning,0,3,,security|credentials|gopass|rename,2d,1d,4h,4h,2026-02-06T20:00Z,
-p016,Install Script Integrity Hardening,planning,0,4,,security|supply-chain|setup,4h,2h,1h,1h,2026-02-03T00:00Z,
-p017,Dashboard Token Storage Hardening,planning,0,3,,security|auth|dashboard,3h,1.5h,1h,30m,2026-02-03T00:00Z,
-p001,aidevops-opencode Plugin,planning,0,4,,opencode|plugin,2d,1d,0.5d,0.5d,2025-12-21T01:50Z,
-p002,Claude Code Destructive Command Hooks,planning,0,4,,claude|git|security,4h,2h,1h,1h,2025-12-21T12:00Z,
-p003,Evaluate Merging build-agent and build-mcp into aidevops,planning,0,3,,architecture|agents,4h,2h,1h,1h,2025-12-21T14:00Z,
-p004,OCR Invoice/Receipt Extraction Pipeline,planning,0,5,,accounting|ocr|automation,3d,1.5d,1d,0.5d,2025-12-21T22:00Z,
-p005,Image SEO Enhancement with AI Vision,planning,0,4,,seo|images|ai|accessibility,6h,3h,2h,1h,2025-12-21T23:30Z,
-p006,Uncloud Integration for aidevops,completed,4,4,,deployment|docker|orchestration,1d,4h,4h,2h,2025-12-21T04:00Z,2026-02-08T00:00Z
-p007,SEO Machine Integration for aidevops,planning,0,5,,seo|content|agents,2d,1d,0.5d,0.5d,2025-12-21T15:00Z,
-p008,Enhance Plan+ and Build+ with OpenCode's Latest Features,planning,0,4,,opencode|agents|enhancement,3h,1.5h,1h,30m,2025-12-21T04:30Z,
-p010,Agent Design Pattern Improvements,planning,0,5,,architecture|agents|context|optimization,1d,6h,4h,2h,2025-01-11T00:00Z,
-p011,Memory Auto-Capture,planning,0,5,,memory|automation|context,1d,6h,4h,2h,2026-01-11T12:00Z,
-p018,MCP Auto-Installation in setup.sh,planning,0,4,,mcp|setup|installation,4h,2h,1h,1h,2026-02-05T03:00Z,
-p019,Voice Integration Pipeline,planning,0,6,,voice|ai|pipecat|transcription|tts|stt|local|api,3d,1.5d,1d,0.5d,2026-02-05T00:00Z,
-p020,SEO Tool Subagents Sprint,planning,0,3,,seo|tools|subagents|sprint,1.5d,1d,4h,2h,2026-02-05T00:00Z,
+<!--TOON:active_plans[0]{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
 -->
 
 ### [2026-02-05] MCP Auto-Installation in setup.sh
@@ -5380,8 +5417,8 @@ p020,SEO Tool Subagents Sprint,planning,0,3,,seo|tools|subagents|sprint,1.5d,1d,
 **Status:** Completed
 **Estimate:** ~4h (ai:2h test:1h read:1h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p018,MCP Auto-Installation in setup.sh,planning,0,4,,mcp|setup|installation,4h,2h,1h,1h,2026-02-05T03:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p018,MCP Auto-Installation in setup.sh,completed,4,4,,mcp|setup|installation,4h,2h,1h,1h,2026-02-05T03:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -5462,8 +5499,8 @@ d027,p018,Auth-required MCPs installed but disabled,Reduces friction; enable aft
 **Estimate:** ~1d (ai:6h test:4h read:2h)
 **Source:** [Lance Martin's "Effective Agent Design" (Jan 2025)](https://x.com/RLanceMartin/status/2009683038272401719)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p010,Agent Design Pattern Improvements,planning,0,5,,architecture|agents|context|optimization,1d,6h,4h,2h,2025-01-11T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p010,Agent Design Pattern Improvements,completed,5,5,,architecture|agents|context|optimization,1d,6h,4h,2h,2025-01-11T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -5547,8 +5584,8 @@ d018,p010,Prioritize automatic session reflection,Highest impact for continual l
 **Estimate:** ~2d (ai:1d test:0.5d read:0.5d)
 **Branch:** `feature/add-skill-command` (worktree at `~/Git/aidevops.feature-add-skill-command/`)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p012,/add-skill System for External Skill Import,planning,0,6,,skills|agents|import|multi-assistant,2d,1d,0.5d,0.5d,2026-01-21T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p012,/add-skill System for External Skill Import,completed,6,6,,skills|agents|import|multi-assistant,2d,1d,0.5d,0.5d,2026-01-21T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -5793,8 +5830,8 @@ d021,p011,Implement ourselves rather than depend on claude-mem,claude-mem is Cla
 **Estimate:** ~5d (ai:3d test:1d read:1d)
 **Source:** [steveyegge/gastown](https://github.com/steveyegge/gastown) (inspiration, not wholesale adoption)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p013,Multi-Agent Orchestration & Token Efficiency,planning,0,8,,orchestration|tokens|agents|mailbox|toon|compaction,5d,3d,1d,1d,2026-01-23T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p013,Multi-Agent Orchestration & Token Efficiency,completed,8,8,,orchestration|tokens|agents|mailbox|toon|compaction,5d,3d,1d,1d,2026-01-23T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -6090,8 +6127,8 @@ This reuses all infrastructure from phases 1-8 and adds only an ingestion pipeli
 **PRD:** [todo/tasks/prd-document-extraction.md](tasks/prd-document-extraction.md)
 **Source:** [On-Premise Document Intelligence Stack](https://pub.towardsai.net/building-an-on-premise-document-intelligence-stack-with-docling-ollama-phi-4-extractthinker-6ab60b495751)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,logged,started}:
-p014,Document Extraction Subagent & Workflow,planning,0,2,,document-extraction|docling|extractthinker|presidio|pii|local-llm|privacy,3h,1h,2h,2026-01-25T01:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,logged,started,completed}:
+p014,Document Extraction Subagent & Workflow,completed,2,2,,document-extraction|docling|extractthinker|presidio|pii|local-llm|privacy,3h,1h,2h,2026-01-25T01:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -6321,8 +6358,8 @@ d040,p014,Cloudflare Workers AI as privacy-preserving cloud,Data at edge; no log
 **Estimate:** ~3d (ai:2d test:0.5d read:0.5d)
 **Source:** [ruvnet/claude-flow](https://github.com/ruvnet/claude-flow) - Analysis of v3 features
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p015,Claude-Flow Inspirations - Selective Feature Adoption,planning,0,4,,memory|embeddings|routing|optimization|learning,3d,2d,0.5d,0.5d,2026-01-31T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p015,Claude-Flow Inspirations - Selective Feature Adoption,completed,4,4,,memory|embeddings|routing|optimization|learning,3d,2d,0.5d,0.5d,2026-01-31T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -6468,8 +6505,8 @@ d038,p015,Use all-MiniLM-L6-v2 via ONNX for embeddings,Small fast no Python requ
 **Estimate:** ~3d (ai:1.5d test:1d read:0.5d)
 **Source:** [alexfazio's X post on droids](https://gist.github.com/alexfazio/dcf2f253d346d8ed2702935b57184582)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p016,Parallel Agents & Headless Dispatch,in_progress,4,5,,agents|parallel|headless|dispatch|runners|memory,3d,1.5d,1d,0.5d,2026-02-03T00:00Z,2026-02-05T00:00Z
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p016,Parallel Agents & Headless Dispatch,completed,5,5,,agents|parallel|headless|dispatch|runners|memory,3d,1.5d,1d,0.5d,2026-02-03T00:00Z,2026-02-05T00:00Z,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -6642,8 +6679,8 @@ d042,p016,Document model providers generically,Models evolve quickly keep option
 **Estimate:** ~2d (ai:1d test:0.5d read:0.5d)
 **Source:** Discussion on parallel agents, OpenCode server, and community contributions
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p017,Self-Improving Agent System,planning,0,6,,agents|self-improvement|automation|privacy|testing|opencode,2d,1d,0.5d,0.5d,2026-02-04T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p017,Self-Improving Agent System,completed,6,6,,agents|self-improvement|automation|privacy|testing|opencode,2d,1d,0.5d,0.5d,2026-02-04T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -6843,8 +6880,8 @@ d046,p017,Worktree isolation for all changes,Easy rollback and doesn't affect ma
 **Status:** Completed
 **Estimate:** ~1.5d (ai:1d test:4h read:2h)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p020,SEO Tool Subagents Sprint,planning,0,3,,seo|tools|subagents|sprint,1.5d,1d,4h,2h,2026-02-05T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p020,SEO Tool Subagents Sprint,completed,3,3,,seo|tools|subagents|sprint,1.5d,1d,4h,2h,2026-02-05T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -6939,8 +6976,8 @@ d052,p020,t088 Sitebulb scope changed to manual workflow,No public API or CLI ex
 **Status:** Completed
 **Estimate:** ~3d (ai:1.5d test:1d read:0.5d)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p019,Voice Integration Pipeline,planning,0,6,,voice|ai|pipecat|transcription|tts|stt|local|api,3d,1.5d,1d,0.5d,2026-02-05T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p019,Voice Integration Pipeline,completed,6,6,,voice|ai|pipecat|transcription|tts|stt|local|api,3d,1.5d,1d,0.5d,2026-02-05T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose
@@ -7203,8 +7240,8 @@ Harden the Higgsfield Playwright automator from "works in testing" to "reliable 
 **Logged:** 2026-02-25
 **Reference:** https://simplex.chat/ | https://github.com/simplex-chat/simplex-chat | [Bot API](https://github.com/simplex-chat/simplex-chat/tree/stable/bots) | [TypeScript SDK](https://github.com/simplex-chat/simplex-chat/tree/stable/packages/simplex-chat-client/typescript) | [Whitepaper](https://github.com/simplex-chat/simplexmq/blob/stable/protocol/overview-tjr.md) | [mail-helper.sh](.agents/scripts/mail-helper.sh) | [IronClaw](https://github.com/nearai/ironclaw) | [OpenClaw](https://github.com/openclaw/openclaw)
 
-<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started}:
-p032,SimpleX Chat Agent and Command Integration,planning,0,8,,feature|communications|security|bots|opsec|mailbox|chat-security,29h,21h,5h,3h,2026-02-25T00:00Z,
+<!--TOON:plan{id,title,status,phase,total_phases,owner,tags,est,est_ai,est_test,est_read,logged,started,completed}:
+p032,SimpleX Chat Agent and Command Integration,completed,8,8,,feature|communications|security|bots|opsec|mailbox|chat-security,29h,21h,5h,3h,2026-02-25T00:00Z,,2026-03-21T00:00Z
 -->
 
 #### Purpose

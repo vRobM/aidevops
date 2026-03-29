@@ -24,32 +24,17 @@ Extract the task title from the user's request. If no title is provided, ask for
 
 ### Step 2: Allocate Task ID
 
-Run the wrapper function or script directly, passing the title via an environment variable to avoid shell injection:
+Always assign user input to a variable first — never interpolate directly (shell injection risk):
 
 ```bash
-# Via planning-commit-helper.sh wrapper (preferred)
-# Assign user input to a variable first — never interpolate it directly into the command string
 TASK_TITLE="<sanitized title from user input>"
+# Via planning-commit-helper.sh wrapper (preferred)
 output=$(~/.aidevops/agents/scripts/planning-commit-helper.sh next-id --title "$TASK_TITLE")
-
-# Or directly via claim-task-id.sh
+# Or directly
 output=$(~/.aidevops/agents/scripts/claim-task-id.sh --title "$TASK_TITLE" --repo-path "$(git rev-parse --show-toplevel)")
 ```
 
-> **Security note**: Always assign the user-supplied title to a variable first (`TASK_TITLE="..."`), then pass `"$TASK_TITLE"` as the argument. Never interpolate user input directly into a command string (e.g., `--title "$(user input)"`) — this allows shell metacharacters to execute arbitrary commands.
-
 ### Step 3: Parse Output
-
-The output contains machine-readable variables:
-
-```text
-TASK_ID=tNNN
-TASK_REF=GH#NNN
-TASK_ISSUE_URL=https://github.com/user/repo/issues/NNN
-TASK_OFFLINE=false
-```
-
-Parse these using a single-pass `while read` loop (more efficient and consistent with `planning-commit-helper.sh`):
 
 ```bash
 while IFS= read -r line; do
@@ -61,245 +46,99 @@ while IFS= read -r line; do
 done <<< "$output"
 ```
 
-### Step 4: Present to User
+Output variables: `TASK_ID=tNNN`, `TASK_REF=GH#NNN`, `TASK_ISSUE_URL=https://...`, `TASK_OFFLINE=false`.
 
-Show the allocated ID and ask for task metadata:
+### Step 4: Present to User
 
 ```text
 Allocated: {task_id} (ref:{task_ref})
-
 Task: "{title}"
-ID: {task_id}
-Ref: ref:{task_ref}
 
 Options:
-1. Add to TODO.md with brief (recommended)
-2. Customize estimate, tags, and dependencies
-3. Just show the ID (don't add to TODO.md)
+1. Add to TODO.md with brief (recommended — queued for pulse dispatch)
+2. Add to TODO.md with brief AND claim for this session (prevents pulse pickup)
+3. Customize estimate, tags, and dependencies
+4. Just show the ID (don't add to TODO.md)
+```
+
+**Option 2 — Claim on create (t1687):** Prevents pulse from dispatching during the gap between `/new-task` and `/full-loop`. Assigns current user + `status:in-progress` immediately. Fallback: `/full-loop` Step 0.6 re-applies the claim.
+
+```bash
+REPO_SLUG="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+if [[ -n "$task_ref" && -n "$REPO_SLUG" ]]; then
+  ISSUE_NUM="${task_ref#GH#}"
+  WORKER_USER=$(gh api user --jq '.login' 2>/dev/null || whoami)
+  gh issue edit "$ISSUE_NUM" --repo "$REPO_SLUG" \
+    --add-assignee "$WORKER_USER" \
+    --add-label "status:in-progress" 2>/dev/null || true
+fi
 ```
 
 ### Step 5: Create Task Brief (MANDATORY)
 
-**Every task MUST have a brief file** at `todo/tasks/{task_id}-brief.md`. This is non-negotiable. A task without a brief is undevelopable.
+**Every task MUST have a brief** at `todo/tasks/{task_id}-brief.md`. A task without a brief is undevelopable. Use `templates/brief-template.md` as the base. Required sections:
 
-Use `templates/brief-template.md` as the base. Populate from conversation context:
+| Section | Content |
+|---------|---------|
+| **Origin** | Created date, session ID, author (human/ai-supervisor/ai-interactive), parent task |
+| **What** | Clear deliverable — what it must produce, not just "implement X" |
+| **Why** | Problem, user need, business value, or dependency |
+| **How** | Technical approach, key files (`path/to/file.ts:45`), patterns to follow |
+| **Acceptance** | Specific testable criteria + "Tests pass" + "Lint clean" |
+| **Context** | Key decisions, constraints, things ruled out |
 
-```markdown
-# {task_id}: {Title}
+**Session ID:** Use `$OPENCODE_SESSION_ID` / `$CLAUDE_SESSION_ID`, or `{app}:unknown-{ISO-date}` if unavailable.
 
-## Origin
-- **Created:** {ISO date}
-- **Session:** {app}:{session-id} (detect from runtime — e.g., opencode:session-xyz, claude-code:abc123)
-- **Created by:** {author} (human | ai-supervisor | ai-interactive)
-- **Parent task:** {parent_id} (if subtask — include link to parent brief)
-- **Conversation context:** {1-2 sentence summary of what was discussed}
-
-## What
-{Clear deliverable description — not "implement X" but what it must produce}
-
-## Why
-{Problem, user need, business value, or dependency requiring this}
-
-## How (Approach)
-{Technical approach, key files, patterns to follow}
-{Reference existing code: `path/to/file.ts:45`}
-
-## Acceptance Criteria
-- [ ] {Specific, testable criterion}
-- [ ] Tests pass
-- [ ] Lint clean
-
-## Context & Decisions
-{Key decisions, constraints, things ruled out}
-
-## Relevant Files
-- `path/to/file.ts:45` — {why relevant}
-```
-
-**For subtasks**: The brief MUST reference the parent task's brief and inherit its context. Don't repeat everything — link to the parent and add what's specific to this subtask.
-
-**Session ID capture**: Detect the runtime environment:
-
-- OpenCode: `$OPENCODE_SESSION_ID` or parse from `~/.local/share/opencode/sessions/`
-- Claude Code: `$CLAUDE_SESSION_ID` or the conversation ID from the CLI
-- If unavailable: use `{app}:unknown-{ISO-date}` and note "session ID not captured"
+**Subtasks:** Brief MUST reference parent: `**Parent task:** {parent_id} — see [todo/tasks/{parent_id}-brief.md]`. Inherit context; add only subtask-specific details.
 
 ### Step 5.5: Classify and Decompose (t1408.2)
 
-After creating the brief, classify the task to determine if it should be decomposed into subtasks. This is the earliest point where decomposition can happen — before the task enters the dispatch queue.
+Run `task-decompose-helper.sh classify "{title}"` if available. Skip with `--no-decompose` or if helper missing (t1408.1).
 
-```bash
-DECOMPOSE_HELPER="$HOME/.aidevops/agents/scripts/task-decompose-helper.sh"
-
-if [[ -x "$DECOMPOSE_HELPER" ]]; then
-  CLASSIFY=$(/bin/bash "$DECOMPOSE_HELPER" classify "{title}") || CLASSIFY=""
-  TASK_KIND=$(echo "$CLASSIFY" | jq -r '.kind // "atomic"' || echo "atomic")
-fi
-```
-
-**If atomic:** Proceed to Step 6 (add single entry to TODO.md). This is the default.
-
-**If composite:** Present the decomposition to the user:
-
-```text
-This task appears composite — it contains 2+ independent concerns.
-Suggested decomposition:
-
-  {task_id}.1: {subtask_1_description} (~{estimate})
-  {task_id}.2: {subtask_2_description} (~{estimate}) [depends on: .1]
-  {task_id}.3: {subtask_3_description} (~{estimate})
-
-Options:
-  1. Create parent + subtasks (recommended for auto-dispatch)
-  2. Keep as single task (implement all at once)
-  3. Edit decomposition
-```
-
-If the user chooses option 1:
-
-1. Create the parent task entry in TODO.md (with `status:blocked`)
-2. For each subtask, run `claim-task-id.sh` to allocate `{task_id}.N` IDs
-3. Create a brief for each subtask (inheriting parent context)
-4. Add subtask entries to TODO.md with `blocked-by:` edges
-5. The parent entry gets `blocked-by:{task_id}.1,{task_id}.2,...`
-
-Each subtask brief references the parent: `**Parent task:** {task_id} — see [todo/tasks/{task_id}-brief.md]`
-
-**Skip decomposition when:** `--no-decompose` flag is passed, or the helper script is not available (t1408.1 not yet merged).
+- **Atomic (default):** Proceed to Step 6.
+- **Composite:** Present decomposition tree. If approved: allocate `{task_id}.N` IDs via `claim-task-id.sh`, create brief per subtask, add `blocked-by:` edges, mark parent `status:blocked`.
 
 ### Step 6: Add to TODO.md
-
-Format the TODO.md entry using the allocated ID:
 
 ```markdown
 - [ ] {task_id} {title} #{tag} ~{estimate} ref:{task_ref} logged:{YYYY-MM-DD}
 ```
 
-**Auto-dispatch eligibility**: Only add `#auto-dispatch` if the brief has:
-
-- At least 2 acceptance criteria beyond "tests pass" and "lint clean"
-- A non-empty "How (Approach)" section with file references
-- A non-empty "What" section with clear deliverable
-
-If the brief is too thin for auto-dispatch, omit the tag and note why.
+**Auto-dispatch:** Only add `#auto-dispatch` if the brief has: (1) 2+ acceptance criteria beyond "tests pass"/"lint clean", (2) non-empty "How" with file references, (3) clear deliverable in "What".
 
 ### Step 6.5: Apply Model Tier and Agent Routing Labels
 
-Classify the task using the canonical taxonomy tables in
-`reference/task-taxonomy.md` — domain routing table and model tier table.
-
-Add the matching TODO tag to the TODO.md entry AND apply the matching GitHub label
-to the issue (if `task_ref` exists). Omit both for standard code tasks (Build+ is
-the default; coding tier is the default).
-
-If the task clearly matches a domain, apply the label:
-
-```bash
-# Apply labels if task_ref exists (issue was created)
-REPO_SLUG="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-if [[ -n "$task_ref" && -n "$REPO_SLUG" ]]; then
-  ISSUE_NUM="${task_ref#GH#}"
-  # Apply tier label (only for non-default tiers)
-  if [[ -n "$tier_label" ]]; then
-    gh label create "$tier_label" --repo "$REPO_SLUG" >/dev/null 2>&1 || true
-    if ! gh issue edit "$ISSUE_NUM" --repo "$REPO_SLUG" --add-label "$tier_label" >/dev/null 2>&1; then
-      echo "[new-task] WARN: failed to apply tier label '$tier_label' to ${task_ref}" >&2
-    fi
-  fi
-  # Apply domain label (only for non-code domains)
-  if [[ -n "$domain_label" ]]; then
-    gh label create "$domain_label" --repo "$REPO_SLUG" >/dev/null 2>&1 || true
-    if ! gh issue edit "$ISSUE_NUM" --repo "$REPO_SLUG" --add-label "$domain_label" >/dev/null 2>&1; then
-      echo "[new-task] WARN: failed to apply domain label '$domain_label' to ${task_ref}" >&2
-    fi
-  fi
-else
-  if [[ -n "$task_ref" ]]; then
-    echo "[new-task] WARN: unable to resolve repo slug for label application" >&2
-  fi
-fi
-```
+Classify using `reference/task-taxonomy.md`. Apply matching TODO tag AND GitHub label (create label if missing via `gh label create`). Omit both for standard code tasks (Build+ / sonnet are defaults).
 
 ### Step 7: Commit and Push
 
-Commit both the brief and TODO.md change, passing the commit message via a variable to prevent injection:
+`${task_id}` is script-generated (safe). `${short_title}` must be a sanitized slug (lowercase, alphanumeric + hyphens):
 
 ```bash
-# Build the commit message from already-validated variables — never interpolate raw user input
-commit_msg="plan: add ${task_id} ${short_title}"
-~/.aidevops/agents/scripts/planning-commit-helper.sh "$commit_msg"
+~/.aidevops/agents/scripts/planning-commit-helper.sh "plan: add ${task_id} ${short_title}"
 ```
 
-> **Security note**: `${task_id}` is script-generated (safe). `${short_title}` must be a sanitized slug derived from the user's title (lowercase, alphanumeric + hyphens only — strip all shell metacharacters before use). Assign to a variable and quote it; never embed raw user input directly in the command string.
-
-The brief file (`todo/tasks/{task_id}-brief.md`) is a planning file and goes directly to main alongside TODO.md.
+Brief and TODO.md are planning files — they go directly to main.
 
 ## Offline Handling
 
-If `TASK_OFFLINE=true`, warn the user:
+If `TASK_OFFLINE=true`: warn user about offline mode (+100 offset), reconciliation required when back online, no GitHub/GitLab issue created.
 
-```text
-[WARN] Allocated {task_id} in offline mode (+100 offset).
-       Reconciliation required when back online.
-       No GitHub/GitLab issue was created.
-```
-
-## Examples
+## Example
 
 ```text
 User: /new-task Add CSV export button
-AI: Allocated: t325 (ref:GH#1260)
-    Task: "Add CSV export button"
+AI:   Allocated: t325 (ref:GH#1260)
+      Brief: todo/tasks/t325-brief.md (What: CSV export on data table, How: ExportButton + papaparse)
+      1. Add to TODO.md (queued)  2. Claim for this session  3. Edit  4. Cancel
 
-    Creating brief from conversation context...
-
-    Brief: todo/tasks/t325-brief.md
-    - What: Add a CSV export button to the data table component that exports
-      the current filtered view as a downloadable CSV file
-    - Why: Users need to export filtered data for offline analysis and reporting
-    - How: Add ExportButton to DataTable toolbar, use papaparse for CSV generation
-    - Acceptance: Button visible in toolbar, exports current filter, handles 10k+ rows
-
-    1. Confirm and add to TODO.md
-    2. Edit brief first
-    3. Cancel
-User: 1
-AI: Added:
-    - todo/tasks/t325-brief.md (brief)
-    - TODO.md: - [ ] t325 Add CSV export button #feature #auto-dispatch ~1h ref:GH#1260 logged:2026-02-12
+User: 2
+AI:   Added and claimed:
+      - TODO.md: - [ ] t325 Add CSV export button #feature #auto-dispatch ~1h ref:GH#1260
+      - Issue #1260: assigned + status:in-progress
+      Pulse workers will skip until you release or 3h stale recovery kicks in.
 ```
 
-```text
-User: /new-task Fix login timeout on mobile
-AI: Allocated: t326 (ref:GH#1261)
-    Task: "Fix login timeout on mobile"
+## Supervisor Subtask Creation
 
-    I need more context for the brief:
-    1. What's the current timeout behaviour? (error message, redirect, etc.)
-    2. Which auth provider? (Better Auth, NextAuth, custom)
-    3. Mobile-specific or all platforms?
-
-User: Better Auth, only on iOS Safari, users get logged out after 5 minutes
-AI: Brief: todo/tasks/t326-brief.md
-    - What: Fix premature session expiry on iOS Safari — sessions should last 24h
-    - Why: iOS Safari users lose work after 5 min due to aggressive cookie handling
-    - How: Check Better Auth session config, likely needs SameSite=None + Secure
-      for iOS Safari cookie persistence. File: packages/auth/src/config.ts
-    - Acceptance: iOS Safari session persists 24h, no regression on other browsers
-
-    1. Confirm  2. Edit  3. Cancel
-```
-
-## CRITICAL: Supervisor Subtask Creation
-
-When the AI supervisor creates subtasks (e.g., decomposing t005 into t005.1-t005.5) — whether manually or via `task-decompose-helper.sh` (t1408.2) — it MUST:
-
-1. Create a brief for EACH subtask at `todo/tasks/{subtask_id}-brief.md`
-2. Reference the parent task's brief: `**Parent task:** {parent_id} — see [todo/tasks/{parent_id}-brief.md]`
-3. Inherit context from the parent but add subtask-specific details
-4. Include the session ID of the supervisor session that created the subtask
-5. Set `blocked-by:` edges between subtasks based on dependency analysis from the decomposition
-
-When using `task-decompose-helper.sh decompose`, the output includes dependency edges (`depends_on` array) that map to `blocked-by:` references in TODO.md. The decompose output also suggests a `batch_strategy` (depth-first or breadth-first) — use this to inform dispatch ordering in the pulse.
-
-A subtask without a brief is a knowledge loss. The parent task's rich context (from the original conversation) must flow down to every subtask.
+When decomposing (manually or via `task-decompose-helper.sh`), the supervisor MUST: (1) create brief per subtask at `todo/tasks/{subtask_id}-brief.md`, (2) reference parent brief, (3) inherit parent context, (4) include supervisor session ID, (5) set `blocked-by:` edges from `depends_on`. The `batch_strategy` field (depth-first/breadth-first) informs pulse dispatch ordering. A subtask without a brief is a knowledge loss.

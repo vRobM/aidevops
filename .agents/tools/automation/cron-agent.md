@@ -28,46 +28,23 @@ tools:
 
 <!-- AI-CONTEXT-END -->
 
-Agent for setting up, managing, identifying, and debugging cron jobs that dispatch AI agents. Uses OpenCode server API for session management.
+Agent for setting up, managing, and debugging cron jobs that dispatch AI agents via the headless runtime helper.
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Cron Agent System                         │
-├─────────────────────────────────────────────────────────────┤
-│  crontab                                                     │
-│  └── cron-dispatch.sh <job-id>                              │
-│      └── OpenCode Server API                                │
-│          └── AI Session (executes task)                     │
-│              └── Results → mail-helper.sh (optional)        │
-├─────────────────────────────────────────────────────────────┤
-│  Storage                                                     │
-│  ├── ~/.config/aidevops/cron-jobs.json    (job definitions) │
-│  ├── ~/.aidevops/.agent-workspace/cron/   (execution logs)  │
-│  └── ~/.aidevops/.agent-workspace/mail/   (result delivery) │
-└─────────────────────────────────────────────────────────────┘
+crontab → cron-dispatch.sh <job-id> → headless-runtime-helper.sh → AI Session → mail-helper.sh (optional)
+
+Storage:
+  ~/.config/aidevops/cron-jobs.json    (job definitions)
+  ~/.aidevops/.agent-workspace/cron/   (execution logs)
+  ~/.aidevops/.agent-workspace/mail/   (result delivery)
 ```
 
 ## Commands
 
-### List Jobs
-
 ```bash
-# List all scheduled jobs
-cron-helper.sh list
-
-# Output:
-# ID          Schedule        Task                          Status
-# job-001     0 9 * * *       Run daily SEO report          active
-# job-002     */30 * * * *    Check deployment health       active
-# job-003     0 0 * * 0       Weekly backup verification    paused
-```
-
-### Add Job
-
-```bash
-# Add a new scheduled job
+# Add a job
 cron-helper.sh add \
   --schedule "0 9 * * *" \
   --task "Generate daily SEO report for example.com" \
@@ -75,101 +52,27 @@ cron-helper.sh add \
   --notify mail \
   --timeout 300
 
-# Options:
-#   --schedule    Cron expression (required)
-#   --task        Task description for AI (required)
-#   --name        Human-readable name (optional, auto-generated)
-#   --notify      Notification method: mail|none (default: none)
-#   --timeout     Max execution time in seconds (default: 600)
-#   --workdir     Working directory (default: current)
-#   --model       Model to use (default: from config)
-#   --paused      Create in paused state
-```
+# Options: --schedule (required), --task (required), --name, --notify mail|none,
+#          --timeout (seconds, default 600), --workdir, --model, --paused
 
-### Remove Job
-
-```bash
-# Remove a job by ID
-cron-helper.sh remove job-001
-
-# Remove with confirmation skip
-cron-helper.sh remove job-001 --force
-```
-
-### Pause/Resume
-
-```bash
-# Pause a job (keeps definition, removes from crontab)
-cron-helper.sh pause job-001
-
-# Resume a paused job
-cron-helper.sh resume job-001
-```
-
-### View Logs
-
-```bash
-# View recent execution logs
-cron-helper.sh logs
-
-# View logs for specific job
-cron-helper.sh logs --job job-001
-
-# Tail logs in real-time
-cron-helper.sh logs --tail 50 --follow
-
-# View logs from specific date
-cron-helper.sh logs --since "2024-01-15"
-```
-
-### Debug Job
-
-```bash
-# Debug a failing job
-cron-helper.sh debug job-001
-
-# Output:
-# Job: job-001 (daily-seo-report)
-# Schedule: 0 9 * * *
-# Last run: 2024-01-15T09:00:00Z
-# Status: FAILED
-# Exit code: 1
-# Duration: 45s
-# 
-# Error output:
-# [ERROR] OpenCode server not responding on port 4096
-# 
-# Suggestions:
-# 1. Ensure OpenCode server is running: opencode serve --port 4096
-# 2. Check server health: curl http://localhost:4096/global/health
-# 3. Verify OPENCODE_SERVER_PASSWORD if authentication is enabled
-```
-
-### Status
-
-```bash
-# Show overall cron system status
+# Manage
+cron-helper.sh list
+cron-helper.sh remove <job-id> [--force]
+cron-helper.sh pause <job-id>
+cron-helper.sh resume <job-id>
 cron-helper.sh status
 
-# Output:
-# Cron Agent Status
-# ─────────────────
-# Jobs defined: 5
-# Jobs active: 4
-# Jobs paused: 1
-# 
-# OpenCode Server: running (port 4096)
-# Last execution: 2024-01-15T09:00:00Z
-# Failed jobs (24h): 1
-# 
-# Upcoming:
-#   job-002 (health-check) in 15 minutes
-#   job-001 (daily-seo-report) in 2 hours
+# Logs and debug
+cron-helper.sh logs [--job <id>] [--tail 50] [--follow] [--since "2024-01-15"]
+cron-helper.sh debug <job-id>
+
+# Check mail results (when --notify mail is set)
+mail-helper.sh check --type status_report
 ```
 
 ## Job Configuration
 
-Jobs are stored in `~/.config/aidevops/cron-jobs.json`:
+`~/.config/aidevops/cron-jobs.json`:
 
 ```json
 {
@@ -193,231 +96,86 @@ Jobs are stored in `~/.config/aidevops/cron-jobs.json`:
 }
 ```
 
-## Execution Flow
-
-When a cron job triggers:
-
-1. **crontab** calls `cron-dispatch.sh <job-id>`
-2. **cron-dispatch.sh**:
-   - Loads job config from `cron-jobs.json`
-   - Checks OpenCode server health
-   - Creates new session via API
-   - Sends task prompt
-   - Waits for completion (with timeout)
-   - Logs results
-   - Optionally sends notification via mailbox
+Auto-managed crontab entry format:
 
 ```bash
-# Example crontab entry (auto-managed)
-0 9 * * * /Users/me/.aidevops/agents/scripts/cron-dispatch.sh job-001 >> /Users/me/.aidevops/.agent-workspace/cron/job-001.log 2>&1
+0 9 * * * ~/.aidevops/agents/scripts/cron-dispatch.sh job-001 >> ~/.aidevops/.agent-workspace/cron/job-001.log 2>&1
 ```
 
-## Integration with OpenCode Server
+## Persistent Server Setup
 
-The cron agent requires OpenCode server to be running:
+Full config templates: `tools/ai-assistants/opencode-server.md`.
+
+**macOS (launchd)** — label `sh.aidevops.opencode-server`, plist `~/Library/LaunchAgents/sh.aidevops.opencode-server.plist`:
 
 ```bash
-# Start server (recommended: use launchd/systemd for persistence)
-opencode serve --port 4096
-
-# With authentication (recommended for security)
-OPENCODE_SERVER_PASSWORD=your-secret opencode serve --port 4096
+# Key fields: Label, ProgramArguments (/usr/local/bin/opencode serve --port 4096),
+#             EnvironmentVariables (OPENCODE_SERVER_PASSWORD), RunAtLoad=true, KeepAlive=true
+launchctl load ~/Library/LaunchAgents/sh.aidevops.opencode-server.plist
 ```
 
-### Persistent Server Setup (macOS)
+**Linux (systemd)** — `~/.config/systemd/user/opencode-server.service`:
 
-Create `~/Library/LaunchAgents/com.aidevops.opencode-server.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.aidevops.opencode-server</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/opencode</string>
-        <string>serve</string>
-        <string>--port</string>
-        <string>4096</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>OPENCODE_SERVER_PASSWORD</key>
-        <string>your-secret-here</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/opencode-server.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/opencode-server.err</string>
-</dict>
-</plist>
+```bash
+# Key fields: ExecStart=/usr/local/bin/opencode serve --port 4096,
+#             Environment=OPENCODE_SERVER_PASSWORD=your-secret-here, Restart=always
+systemctl --user enable --now opencode-server
 ```
-
-Load with: `launchctl load ~/Library/LaunchAgents/com.aidevops.opencode-server.plist`
-
-### Persistent Server Setup (Linux)
-
-Create `~/.config/systemd/user/opencode-server.service`:
-
-```ini
-[Unit]
-Description=OpenCode Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/opencode serve --port 4096
-Environment=OPENCODE_SERVER_PASSWORD=your-secret-here
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-```
-
-Enable with: `systemctl --user enable --now opencode-server`
 
 ## Use Cases
 
-### Daily Reports
-
 ```bash
-cron-helper.sh add \
-  --schedule "0 9 * * *" \
-  --task "Generate daily SEO performance report. Check rankings, traffic, and indexation status. Save to ~/reports/seo-$(date +%Y-%m-%d).md" \
-  --name "daily-seo-report" \
-  --notify mail
-```
+# Daily SEO report (9am)
+cron-helper.sh add --schedule "0 9 * * *" --name "daily-seo-report" --notify mail \
+  --task "Generate daily SEO performance report. Check rankings, traffic, indexation. Save to ~/reports/seo-\$(date +%Y-%m-%d).md"
 
-### Health Checks
+# Health check every 30 min
+cron-helper.sh add --schedule "*/30 * * * *" --name "health-check" --timeout 120 \
+  --task "Check deployment health. Verify SSL, response times, error rates. Alert if issues found."
 
-```bash
-cron-helper.sh add \
-  --schedule "*/30 * * * *" \
-  --task "Check deployment health for production servers. Verify SSL, response times, and error rates. Alert if issues found." \
-  --name "health-check" \
-  --timeout 120
-```
+# Weekly maintenance (Sunday 3am)
+cron-helper.sh add --schedule "0 3 * * 0" --name "weekly-maintenance" --workdir "~/.aidevops" \
+  --task "Run weekly maintenance: prune old logs, consolidate memory, clean temp files. Report summary."
 
-### Automated Maintenance
-
-```bash
-cron-helper.sh add \
-  --schedule "0 3 * * 0" \
-  --task "Run weekly maintenance: prune old logs, consolidate memory, clean temp files. Report summary." \
-  --name "weekly-maintenance" \
-  --workdir "~/.aidevops"
-```
-
-### Content Publishing
-
-```bash
-cron-helper.sh add \
-  --schedule "0 8 * * 1-5" \
-  --task "Check content calendar for today's scheduled posts. Publish any ready content to WordPress and social media." \
-  --name "content-publisher" \
-  --workdir "~/projects/blog"
-```
-
-## Notification via Mailbox
-
-When `--notify mail` is set, results are sent to the inter-agent mailbox:
-
-```bash
-# Check for cron job results
-mail-helper.sh check --type status_report
-
-# Results include:
-# - Job ID and name
-# - Execution time
-# - Success/failure status
-# - AI response summary
-# - Any errors encountered
+# Weekday content publishing (8am Mon-Fri)
+cron-helper.sh add --schedule "0 8 * * 1-5" --name "content-publisher" --workdir "~/projects/blog" \
+  --task "Check content calendar for today's scheduled posts. Publish any ready content to WordPress and social media."
 ```
 
 ## Troubleshooting
 
-### Job Not Running
-
 ```bash
-# 1. Check crontab entry exists
-crontab -l | grep cron-dispatch
-
-# 2. Verify job is active (not paused)
-cron-helper.sh list
-
-# 3. Check cron daemon is running
+# Job not running
+crontab -l | grep cron-dispatch    # verify entry exists
+cron-helper.sh list                # verify job is active (not paused)
 pgrep cron || sudo service cron start
-```
 
-### OpenCode Server Issues
-
-```bash
-# 1. Check server is running
+# Server issues
 curl http://localhost:4096/global/health
-
-# 2. Check authentication
 curl -u admin:your-password http://localhost:4096/global/health
 
-# 3. View server logs
-tail -f /tmp/opencode-server.log
-```
-
-### Permission Issues
-
-```bash
-# Ensure scripts are executable
+# Permission issues
 chmod +x ~/.aidevops/agents/scripts/cron-*.sh
-
-# Check log directory permissions
 ls -la ~/.aidevops/.agent-workspace/cron/
 ```
 
-## Security Considerations
+## Security
 
-1. **HTTPS by default**: Remote hosts (non-localhost) automatically use HTTPS
-2. **Server authentication**: Always use `OPENCODE_SERVER_PASSWORD` for network-exposed servers
-3. **SSL verification**: Enabled by default; use `OPENCODE_INSECURE=1` only for self-signed certs
-4. **Task validation**: Jobs only execute pre-defined tasks from `cron-jobs.json`
-5. **Timeout limits**: All jobs have configurable timeouts to prevent runaway sessions
-6. **Log rotation**: Old logs are automatically pruned (configurable retention)
-7. **Credential isolation**: Tasks inherit environment from cron, not from config files
+| Rule | Detail |
+|------|--------|
+| HTTPS by default | Non-localhost hosts use HTTPS automatically (`localhost`/`127.0.0.1`/`::1` → HTTP) |
+| Server auth | Always set `OPENCODE_SERVER_PASSWORD` for network-exposed servers |
+| SSL verification | Enabled by default; `OPENCODE_INSECURE=1` only for self-signed certs |
+| Task validation | Jobs only execute pre-defined tasks from `cron-jobs.json` |
+| Timeouts | All jobs have configurable timeouts to prevent runaway sessions |
+| Log rotation | Old logs auto-pruned (configurable retention) |
+| Credential isolation | Tasks inherit environment from cron, not config files |
 
-### Remote Server Configuration
+Remote server env vars: `OPENCODE_HOST`, `OPENCODE_PORT`, `OPENCODE_SERVER_PASSWORD`. Test with `cron-helper.sh status`.
 
-For connecting to a remote OpenCode server:
+## Related
 
-```bash
-# Required: Set server host and authentication
-export OPENCODE_HOST="opencode.example.com"
-export OPENCODE_PORT="4096"
-export OPENCODE_SERVER_PASSWORD="your-secure-password"
-
-# Optional: For self-signed certificates (not recommended for production)
-export OPENCODE_INSECURE=1
-
-# Test connection
-cron-helper.sh status
-```
-
-### Protocol Selection
-
-| Host | Protocol | Notes |
-|------|----------|-------|
-| `localhost` | HTTP | Safe for local development |
-| `127.0.0.1` | HTTP | Safe for local development |
-| `::1` | HTTP | IPv6 localhost |
-| Any other host | HTTPS | Encrypted connection required |
-
-## Related Documentation
-
-- `tools/ai-assistants/opencode-server.md` - OpenCode server API
-- `mail-helper.sh` - Inter-agent mailbox for notifications
-- `memory-helper.sh` - Cross-session memory for task context
-- `workflows/ralph-loop.md` - Iterative AI development patterns
+- `tools/ai-assistants/opencode-server.md` — OpenCode server API and full plist/service templates
+- `mail-helper.sh` — inter-agent mailbox for notifications
+- `memory-helper.sh` — cross-session memory for task context
+- `workflows/ralph-loop.md` — iterative AI development patterns

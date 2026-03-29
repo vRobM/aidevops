@@ -18,186 +18,71 @@ tools:
 
 ## Quick Reference
 
-- **Mandatory Patterns**: Local variables for params (`local param="$1"`), explicit returns, constants for 3+ strings
 - **SC2155**: Separate `local var` and `var=$(command)`
-- **S7679**: Never use `$1` directly - assign to local variables
-- **S1192**: Create `readonly CONSTANT="value"` for repeated strings
+- **S7679**: Never use `$1` directly — assign to named locals
+- **S1192**: `readonly CONSTANT` for strings used 3+ times
 - **S1481**: Remove unused variables or enhance functionality
-- **Pre-Dev**: Run `linters-local.sh`, note current issues, plan improvements
-- **Post-Dev**: Re-run quality check, test functionality, commit with metrics
-- **Quality Scripts**: `linters-local.sh`, `fix-content-type.sh`, `fix-auth-headers.sh`, `fix-error-messages.sh`
+- **Explicit returns**: Every function must end with `return 0` or error code
+- **Pre/post**: Run `.agents/scripts/linters-local.sh` before and after changes
 - **Targets**: SonarCloud <50 issues, 0 critical violations, 100% feature preservation
+
 <!-- AI-CONTEXT-END -->
 
-## Framework-Specific Guidelines for AI Agents
+> **IMPORTANT**: Supplementary to [AGENTS.md](../../AGENTS.md). For conflicts, AGENTS.md takes precedence.
 
-> **IMPORTANT**: This document is supplementary to the [AGENTS.md](../AGENTS.md).
-> For any conflicts, the main AGENTS.md takes precedence as the single source of truth.
+## Shell Script Standards (MANDATORY)
 
-### Overview
-
-This document provides detailed implementation examples and advanced patterns for AI agents working on the AI DevOps Framework.
-
-### Code Quality Requirements
-
-#### Shell Script Standards (MANDATORY)
-
-**These patterns are REQUIRED for SonarCloud/CodeFactor/Codacy compliance:**
+Required for SonarCloud/CodeFactor/Codacy compliance. Full rule reference: `code-standards.md`.
 
 ```bash
-# ✅ CORRECT Function Structure
+# Function structure — local params, explicit return
 function_name() {
     local param1="$1"
     local param2="$2"
-    
-    # Function logic here
-    
-    return 0  # MANDATORY: Every function must have explicit return
+    # logic
+    return 0
 }
 
-# ✅ CORRECT Variable Declaration (SC2155 compliance)
+# SC2155: separate declaration from command substitution
 local variable_name
 variable_name=$(command_here)
 
-# ✅ CORRECT String Literal Management (S1192 compliance)
-readonly COMMON_STRING="repeated text"
-echo "$COMMON_STRING"  # Use constant for 3+ occurrences
-
-# ✅ CORRECT Positional Parameter Handling (S7679 compliance)
-printf 'Price: %s50/month\n' '$'  # Not: echo "Price: $50/month"
-```
-
-#### Quality Issue Prevention
-
-**Before making ANY changes, check for these patterns:**
-
-1. **Positional Parameters**: Never use `$50`, `$200` in strings - use printf format
-2. **String Literals**: If text appears 3+ times, create a readonly constant
-3. **Unused Variables**: Every variable must be used or removed
-4. **Return Statements**: Every function must end with `return 0` or appropriate code
-5. **Variable Declaration**: Separate `local var` and `var=$(command)`
-
-### Development Workflow
-
-#### Pre-Development Checklist
-
-1. **Run quality check**: `bash .agents/scripts/linters-local.sh`
-2. **Check current issues**: Note SonarCloud/Codacy/CodeFactor status
-3. **Plan improvements**: How will changes enhance quality?
-4. **Test functionality**: Ensure no feature loss
-
-#### Post-Development Validation
-
-1. **Quality verification**: Re-run linters-local.sh
-2. **Functionality testing**: Verify all features work
-3. **Documentation updates**: Update AGENTS.md if needed
-4. **Commit with metrics**: Include before/after quality metrics
-
-### Common Patterns & Solutions
-
-#### String Literal Consolidation
-
-**Target patterns with 3+ occurrences:**
-
-- HTTP headers: `Content-Type: application/json`, `Authorization: Bearer`
-- Error messages: `Unknown command:`, `Usage:`, help text
-- API endpoints: Repeated URLs or paths
-- Configuration values: Common settings or defaults
-
-```bash
-# Create constants section after colors
-readonly NC='\033[0m' # No Color
-
-# Common constants
+# S1192: constant for strings used 3+ times
 readonly CONTENT_TYPE_JSON="Content-Type: application/json"
-readonly AUTH_BEARER_PREFIX="Authorization: Bearer"
 readonly ERROR_UNKNOWN_COMMAND="Unknown command:"
 ```
 
-#### Error Message Standardization
+**S1481 (unused variables):** Prefer enhancing functionality over deleting — the variable often signals missing logic.
 
-**Consistent error handling patterns:**
+## Quality Tools
 
-```bash
-# Error message constants
-readonly ERROR_UNKNOWN_COMMAND="Unknown command:"
-readonly ERROR_CONFIG_NOT_FOUND="Configuration file not found"
-readonly ERROR_INVALID_OPTION="Invalid option"
-readonly USAGE_PREFIX="Usage:"
-readonly HELP_MESSAGE_SUFFIX="Show this help message"
+- `.agents/scripts/linters-local.sh` — run before and after changes
+- `fix-content-type.sh`, `fix-auth-headers.sh`, `fix-error-messages.sh` — targeted fixers
+- `coderabbit-cli.sh review`, `codacy-cli.sh analyze`, `sonarscanner-cli.sh analyze`
 
-# Usage in functions
-print_error "$ERROR_UNKNOWN_COMMAND $command"
-echo "$USAGE_PREFIX $0 [options]"
-```
+## Runtime Behaviour Patterns
 
-#### Function Enhancement Over Deletion
+Patterns that cause silent failures, infinite loops, and race conditions. Static analysis cannot catch these.
 
-**When fixing unused variables, prefer enhancement:**
+**Prevention rule:** Before implementing any pattern below, enumerate the complete state space — every possible state, event, and status value including errors. Implement handlers for all of them before writing the happy path.
 
-```bash
-# ❌ DON'T: Remove functionality
-# local port  # Removed to fix unused variable
+### Runtime Testing Signals
 
-# ✅ DO: Enhance functionality
-local port
-read -r port
-if [[ -n "$port" && "$port" != "22" ]]; then
-    ssh -p "$port" "$host"  # Enhanced SSH with port support
-else
-    ssh "$host"
-fi
-```
+| Pattern | Risk | Required testing |
+|---------|------|-----------------|
+| `switch`/`case` on status/state | Missing entry states | Trigger each state |
+| `while true` / unbounded loops | Infinite loop | Verify termination |
+| `setTimeout`/`setInterval` | Timer leak | Verify cleanup |
+| Payment/checkout flows | Duplicate charge | Full payment flow |
+| Auth token refresh | Race condition | Concurrent requests |
+| Webhook handlers | Missing event types | Send each event type |
+| Database migrations | Irreversible | Test on staging first |
 
-### Quality Tools Usage
+Full patterns and code examples: [`runtime-patterns.md`](runtime-patterns.md)
 
-#### Available Quality Scripts
+**Key rules:**
 
-- **linters-local.sh**: Run before and after changes
-- **fix-content-type.sh**: Fix Content-Type header duplications
-- **fix-auth-headers.sh**: Fix Authorization header patterns
-- **fix-error-messages.sh**: Standardize error messages
-- **markdown-formatter.sh**: Fix markdown formatting issues
-
-#### Quality CLI Integration
-
-```bash
-# CodeRabbit analysis
-bash .agents/scripts/coderabbit-cli.sh review
-
-# Comprehensive analysis
-bash .agents/scripts/quality-cli-manager.sh analyze all
-
-# Individual platform analysis
-bash .agents/scripts/codacy-cli.sh analyze
-bash .agents/scripts/sonarscanner-cli.sh analyze
-```
-
-### Success Metrics
-
-#### Quality Targets
-
-- **SonarCloud**: <50 total issues (currently 42)
-- **Critical Issues**: 0 S7679, 0 S1481 violations
-- **String Literals**: <10 S1192 violations
-- **ShellCheck**: <5 critical issues per file
-- **Functionality**: 100% feature preservation
-
-#### Commit Standards
-
-**Include quality metrics in commit messages:**
-
-```text
-🔧 FEATURE: Enhanced SSH functionality with port support
-
-✅ QUALITY IMPROVEMENTS:
-- Fixed S1481: Unused 'port' variable → Enhanced SSH port support
-- Maintained functionality: All existing SSH features preserved
-- Added capability: Custom port support for non-standard configurations
-
-📊 METRICS:
-- SonarCloud: 43 → 42 issues (1 issue resolved)
-- Functionality: 100% preserved + enhanced
-```
-
-This framework maintains industry-leading quality standards through systematic application of these practices.
+- **State machines**: Handle all possible states with explicit defaults. Guard transitions to prevent double-processing.
+- **Polling**: Every loop must have four termination conditions — success, timeout, terminal failure, max iterations.
+- **Backoff**: Use exponential backoff for long-running polls to avoid hammering APIs.
+- **Quiescence**: For UI polling, wait for stability over a duration, not a single passing check.

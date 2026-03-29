@@ -1,0 +1,1640 @@
+{
+  "_comment": null,
+  "files": {
+    ".agents/seo/analytics-tracking.md": {
+      "hash": "07ff0feec55ad3f8477a6badd724b479c1b09370",
+      "at": "2026-03-27T21:25:04Z",
+      "pr": 11015
+    },
+    ".agents/tools/credentials/gopass.md": {
+      "hash": "a59a0077d4d56694894c8cadef6b9c3a294dede0",
+      "at": "2026-03-27T21:25:05Z",
+      "pr": 11021
+    },
+    ".agents/marketing-sales/meta-ads-creative-hooks.md": {
+      "hash": "f7c8e3356361a9ab1941f729337bbf7d0f8447ef",
+      "at": "2026-03-27T21:25:06Z",
+      "pr": 11016
+    },
+    ".agents/tools/programming/modern-javascript-skill/es2024.md": {
+      "hash": "5ff178dfe9603a724792aaef45d63f4b33fce7ef",
+      "at": "2026-03-27T21:25:08Z",
+      "pr": 11002
+    },
+    ".agents/aidevops/providers.md": {
+      "hash": "18b8c2ddd2bb1ee1b0affc02c05ae860b8e902da",
+      "at": "2026-03-27T21:25:09Z",
+      "pr": 11003
+    },
+    ".agents/aidevops/services.md": {
+      "hash": "0fd05379ebb6a6ab079aaa0011c1dd8a5cca6af1",
+      "at": "2026-03-27T21:25:10Z",
+      "pr": 11004
+    },
+    ".agents/seo/semrush.md": {
+      "hash": "cc61832322267a222c9e557b04459de4a3520086",
+      "at": "2026-03-27T21:25:11Z",
+      "pr": 11006
+    },
+    ".agents/marketing-sales/cro-chapter-10.md": {
+      "hash": "730bf8258084ccd7a330cc2ac1032f1aedd4a370",
+      "at": "2026-03-27T21:25:12Z",
+      "pr": 11005
+    },
+    ".agents/scripts/commands/log-issue-aidevops.md": {
+      "hash": "24878e7d7abca4cf0b41a18e5dac1977978ec3c1",
+      "at": "2026-03-27T21:25:13Z",
+      "pr": 11007
+    },
+    ".agents/services/communications/xmtp.md": {
+      "hash": "0b5b1bb178865dc7efff9f7578cd26dd9bf82bc9",
+      "at": "2026-03-27T21:25:14Z",
+      "pr": 11009
+    },
+    ".agents/tools/credentials/multi-tenant.md": {
+      "hash": "efa55dc5b3f2f5222982c1c9f0214ad1e2601624",
+      "at": "2026-03-27T21:25:16Z",
+      "pr": 11008
+    },
+    ".agents/reference/high-stakes-operations.md": {
+      "hash": "ba39668c924d2e2d0137c766053513a98a2f2839",
+      "at": "2026-03-27T21:25:17Z",
+      "pr": 11012
+    },
+    ".agents/tools/architecture/feature-slicing-skill.md": {
+      "hash": "7a86b72e717f9805c458d44fa69e00b9b845addd",
+      "at": "2026-03-27T21:25:18Z",
+      "pr": 11010
+    },
+    ".agents/tools/automation/macos-automator.md": {
+      "hash": "f8771a0d1548af0fbdd76f1944d50ce6b1107f13",
+      "at": "2026-03-27T21:25:19Z",
+      "pr": 11011
+    },
+    ".agents/seo/data-export.md": {
+      "hash": "196b3c4788803c0b2b8d412752d3d262d7e6f8b2",
+      "at": "2026-03-27T21:25:21Z",
+      "pr": 11019
+    },
+    ".agents/tools/ai-generation/comfy-cli.md": {
+      "hash": "6d885b8f28374a6d71d6f4095a6015f3359a668e",
+      "at": "2026-03-27T21:25:22Z",
+      "pr": 11014
+    },
+    ".agents/tools/architecture/feature-slicing-skill/cheatsheet.md": {
+      "hash": "b244fb8417fc27f0de33c83c86092f5bebd736f3",
+      "at": "2026-03-27T21:25:23Z",
+      "pr": 11018
+    },
+    ".agents/tools/browser/anti-detect-browser.md": {
+      "hash": "647081565083b90f27fdce7d25dea9e153fc64a4",
+      "at": "2026-03-27T21:25:25Z",
+      "pr": 11017
+    },
+    ".agents/tools/code-review/snyk.md": {
+      "hash": "e248df7d21db7a21cef8b1e16e1e96f361e3e487",
+      "at": "2026-03-27T21:25:26Z",
+      "pr": 11013
+    },
+    ".agents/tools/ai-orchestration/crewai.md": {
+      "hash": "e1ed08282945b0708a6840e1d2bb38d92c3d3698",
+      "at": "2026-03-28T02:50:59Z",
+      "pr": 11274
+    },
+    ".agents/tools/build-mcp/api-wrapper.md": {
+      "hash": "68b6075506f6dc1153fec6d5aa78c05d213b0b73",
+      "at": "2026-03-28T02:51:01Z",
+      "pr": 11276
+    },
+    ".agents/tools/build-mcp/api-wrapper/patterns.md": {
+      "hash": "5aa65e858b380b38b44e647545eda3f1450543b2",
+      "at": "2026-03-28T02:51:01Z",
+      "pr": 11276
+    },
+    ".agents/aidevops/add-new-mcp-to-aidevops.md": {
+      "hash": "818de6a118b3981cbc732aace97a1220ad7f27ee",
+      "at": "2026-03-28T16:41:22Z",
+      "pr": 12006
+    },
+    ".agents/marketing-sales/direct-response-copy-frameworks-objection-handling.md": {
+      "hash": "a80eb99acba160fa0f034a4989c0b886f37a32a0",
+      "at": "2026-03-28T08:17:37Z",
+      "pr": 11571
+    },
+    ".agents/reference/configuration.md": {
+      "hash": "9502faea512b841b7a239e9e3c9cc0188f4fe855",
+      "at": "2026-03-28T04:30:48Z",
+      "pr": 11321
+    },
+    ".agents/scripts/stats-functions.sh": {
+      "hash": "500235eb7c29b89a44219c93701d3960837d9dca",
+      "at": "2026-03-28T02:51:08Z",
+      "pr": 11273
+    },
+    ".agents/workflows/plans.md": {
+      "hash": "d07529f81bc8ce92541f51393632bb2d04ce8fd4",
+      "at": "2026-03-28T21:58:58Z",
+      "pr": 12235
+    },
+    ".agents/marketing-sales/meta-ads-creative-scripts.md": {
+      "hash": "9455fbf07187de24552aa591a8752fd7b3df2480",
+      "at": "2026-03-28T03:10:39Z",
+      "pr": 11297
+    },
+    ".agents/content/social-bird.md": {
+      "hash": "b2840ebff41ba9b78f7331487d6596373e8436e4",
+      "at": "2026-03-28T05:10:07Z",
+      "pr": 11354
+    },
+    ".agents/tools/programming/modern-javascript-skill/composition.md": {
+      "hash": "fe9da3d05db78aac6b072235efe8b74f5c9fcf2b",
+      "at": "2026-03-28T03:53:07Z",
+      "pr": 11328
+    },
+    ".agents/tools/programming/modern-javascript-skill/es2022-es2023.md": {
+      "hash": "5e5dfb7e18557b8e26c5c48c090c8df94eda485c",
+      "at": "2026-03-28T03:53:13Z",
+      "pr": 11337
+    },
+    ".agents/workflows/milestone-validation.md": {
+      "hash": "3e8c88a4d98e24993198b7a6cfc0c93b7825bd26",
+      "at": "2026-03-28T03:53:42Z",
+      "pr": 11286
+    },
+    ".agents/services/communications/discord.md": {
+      "hash": "44cce31bf11bd980e6b95270c913477c86348a15",
+      "at": "2026-03-28T03:53:47Z",
+      "pr": 11287
+    },
+    ".agents/tools/browser/pagespeed.md": {
+      "hash": "55b132de0f4ff15dd72cec557bf042cd56b93fec",
+      "at": "2026-03-28T03:53:49Z",
+      "pr": 11295
+    },
+    ".agents/tools/ai-orchestration/packaging.md": {
+      "hash": "4cbea04181622677bff0bdbb611cdd03a3401484",
+      "at": "2026-03-28T03:53:52Z",
+      "pr": 11296
+    },
+    ".agents/aidevops/mcp-integrations.md": {
+      "hash": "8c6204355b9b3ccc09bb3761ac1804e94bf76db2",
+      "at": "2026-03-28T03:53:54Z",
+      "pr": 11339
+    },
+    ".agents/tools/ai-assistants/opencode-server.md": {
+      "hash": "15e90e96d742cfe07ffd4cb37c340157d5a8bb74",
+      "at": "2026-03-28T03:53:56Z",
+      "pr": 11345
+    },
+    ".agents/tools/context/mcp-discovery.md": {
+      "hash": "b5851d90484fe52e39f87e3c7af8692778986208",
+      "at": "2026-03-28T03:53:59Z",
+      "pr": 11338
+    },
+    ".agents/tools/deployment/cloudron-app-packaging.md": {
+      "hash": "a6ddd4af870f4445d96eb4bf3c2d109fcb9219b7",
+      "at": "2026-03-28T03:54:01Z",
+      "pr": 11344
+    },
+    ".agents/tools/security/ip-reputation.md": {
+      "hash": "a1da2aa2f5e2f454f3c1dbcd3a7a819a72cd80dd",
+      "at": "2026-03-28T03:54:03Z",
+      "pr": 11342
+    },
+    ".agents/tools/ui/frontend-debugging.md": {
+      "hash": "272d16549c353500a19666d7ace227b34b2ae363",
+      "at": "2026-03-28T03:54:06Z",
+      "pr": 11340
+    },
+    ".agents/workflows/preflight.md": {
+      "hash": "c4695943d5555314205b87bb88020fb62de14b63",
+      "at": "2026-03-28T03:54:08Z",
+      "pr": 11341
+    },
+    ".agents/aidevops/recommendations.md": {
+      "hash": "67c3f660425b669feae3238d7b42589449caa860",
+      "at": "2026-03-28T03:54:11Z",
+      "pr": 11343
+    },
+    ".agents/services/communications/msteams.md": {
+      "hash": "9818d1daccf3f68d103ecba204aa56431dba6514",
+      "at": "2026-03-28T03:54:15Z",
+      "pr": 11346
+    },
+    ".agents/tools/browser/peekaboo.md": {
+      "hash": "294d232e9625b8a855f17cbea4498a4881a6b0bc",
+      "at": "2026-03-28T03:54:17Z",
+      "pr": 11348
+    },
+    ".agents/tools/database/vector-search.md": {
+      "hash": "d365046c212da54c3ab0ede8217cce083de484c5",
+      "at": "2026-03-28T03:54:19Z",
+      "pr": 11351
+    },
+    ".agents/seo/neuronwriter.md": {
+      "hash": "e6d78a192db4a98186ff9a1f428a07d6455ba42a",
+      "at": "2026-03-28T03:54:21Z",
+      "pr": 11350
+    },
+    ".agents/tools/wordpress/wp-preferred.md": {
+      "hash": "6664b61850bd5f84a8044f5dea501f4534b9a9d8",
+      "at": "2026-03-28T03:54:25Z",
+      "pr": 11353
+    },
+    ".agents/tools/git/opencode-github.md": {
+      "hash": "02c6d675ca2b756817bc639ec03d999e1f3ea58e",
+      "at": "2026-03-28T03:54:27Z",
+      "pr": 11349
+    },
+    ".agents/services/hosting/webhosting.md": {
+      "hash": "fb3877648d049a414407d7f9e6beb747c2f92f1d",
+      "at": "2026-03-28T03:54:32Z",
+      "pr": 11352
+    },
+    ".agents/services/communications/nextcloud-talk.md": {
+      "hash": "830399729c8d83ca4263bbf736ea549534989f63",
+      "at": "2026-03-28T03:54:35Z",
+      "pr": 11360
+    },
+    ".agents/services/outreach/smartlead.md": {
+      "hash": "8171133da8154e590bca4a6baa8a1bbe05051e05",
+      "at": "2026-03-28T03:54:38Z",
+      "pr": 11357
+    },
+    ".agents/marketing-sales/cro-chapter-16.md": {
+      "hash": "920245116e79b04207fd2b808c5dcbfabea3eb17",
+      "at": "2026-03-28T04:30:24Z",
+      "pr": 11374
+    },
+    ".agents/marketing-sales/meta-ads-campaigns-decision-trees.md": {
+      "hash": "a7bcedab8040e2b400b7c2feca987e09bb0a8477",
+      "at": "2026-03-28T04:30:25Z",
+      "pr": 11381
+    },
+    ".agents/tools/database/vector-search/per-tenant-rag.md": {
+      "hash": "9c0a46c72bbf38115155d5214f0256365a03260b",
+      "at": "2026-03-28T06:40:00Z",
+      "pr": 11417
+    },
+    ".agents/tools/architecture/feature-slicing-skill/nextjs.md": {
+      "hash": "0fd2c402556f4d6804ce1a61eeaaaa9c3cecd541",
+      "at": "2026-03-28T06:59:34Z",
+      "pr": 11437
+    },
+    ".agents/marketing-sales/meta-ads-creative-formats.md": {
+      "hash": "f8a4f095bebc852b9ce58976d3b53e418bbe578e",
+      "at": "2026-03-28T06:39:54Z",
+      "pr": 11410
+    },
+    ".agents/marketing-sales/ad-creative-chapter-06.md": {
+      "hash": "3d34a8e028e8905a54af8dd939394d10bdf16d97",
+      "at": "2026-03-28T05:09:55Z",
+      "pr": 11414
+    },
+    ".agents/marketing-sales/direct-response-copy-swipe-file-ads.md": {
+      "hash": "8e2f8f2a6620debfe219e09c96cfeb634fb518a7",
+      "at": "2026-03-28T05:50:32Z",
+      "pr": 11411
+    },
+    ".agents/tools/voice/transcription.md": {
+      "hash": "00b7657112dc4b31c6064057fcd47e8d4651f7ee",
+      "at": "2026-03-28T05:10:01Z",
+      "pr": 11419
+    },
+    ".agents/tools/diagrams/mermaid-diagrams-skill/sequence.md": {
+      "hash": "162ba5164f7ffedc3b1d3497beabd56c6d58aaba",
+      "at": "2026-03-28T05:10:17Z",
+      "pr": 11392
+    },
+    ".agents/tools/architecture/clean-ddd-hexagonal-skill/cheatsheet.md": {
+      "hash": "7622759c028bec7b85f445a88ab175f13b055133",
+      "at": "2026-03-28T05:10:19Z",
+      "pr": 11393
+    },
+    ".agents/marketing-sales/ad-creative-chapter-10.md": {
+      "hash": "23e33ef44632a4467884d5d9bebf6452adf22160",
+      "at": "2026-03-28T05:10:32Z",
+      "pr": 11315
+    },
+    ".agents/marketing-sales/ad-creative-offers-landing.md": {
+      "hash": "a16b4767e518eb9f3f35e1b61d3d166390077009",
+      "at": "2026-03-28T05:50:34Z",
+      "pr": 11415
+    },
+    ".agents/services/database/postgres-drizzle-skill/queries.md": {
+      "hash": "2647d7cd620f871bdbc5ca89466f013792b777fd",
+      "at": "2026-03-28T06:40:05Z",
+      "pr": 11416
+    },
+    ".agents/tools/accessibility/accessibility-audit.md": {
+      "hash": "50607e3251694a312978efe741fd95eb6e47de55",
+      "at": "2026-03-28T08:18:26Z",
+      "pr": 11634
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/ai-gateway.md": {
+      "hash": "720c2836fca088d027ac637f8c69e97cb3c2764a",
+      "at": "2026-03-28T05:50:52Z",
+      "pr": 11443
+    },
+    ".agents/tools/programming/modern-javascript-skill/es2018-es2019.md": {
+      "hash": "b59a17a028d181e2f55c45e58c371ca999d9a2ee",
+      "at": "2026-03-28T05:50:55Z",
+      "pr": 11439
+    },
+    ".agents/services/database/postgres-drizzle-skill/postgres.md": {
+      "hash": "2633ce6d2343b370a13a3efea1ed735544a6883a",
+      "at": "2026-03-28T05:50:57Z",
+      "pr": 11448
+    },
+    ".agents/marketing-sales/direct-response-copy-frameworks-offer-construction.md": {
+      "hash": "10d31ffa27d8e38267882e04f099ce38899635f1",
+      "at": "2026-03-28T05:51:09Z",
+      "pr": 11363
+    },
+    ".agents/marketing-sales/meta-ads-audiences-first-party-data.md": {
+      "hash": "1ad15971973eec338e831dc24839609eb1f473e3",
+      "at": "2026-03-28T08:18:20Z",
+      "pr": 11536
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-ad-copy.md": {
+      "hash": "bfc16d8c1bc4e6a8229cc555eba0d72de8ece0d7",
+      "at": "2026-03-28T08:17:45Z",
+      "pr": 11593
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-vsl-script.md": {
+      "hash": "c8fa5d2f257f52a1d7c9c49ca9d78e6be247623e",
+      "at": "2026-03-28T08:17:46Z",
+      "pr": 11591
+    },
+    ".agents/marketing-sales/cro-chapter-09.md": {
+      "hash": "4d45e94ded75b90ef7e30518e072a5a643167370",
+      "at": "2026-03-28T08:17:36Z",
+      "pr": 11561
+    },
+    ".agents/reference/memory.md": {
+      "hash": "0a7c4c493f3a825b98e2de3928f718fa9095c966",
+      "at": "2026-03-28T07:37:36Z",
+      "pr": 11538
+    },
+    ".agents/marketing-sales/ad-creative-chapter-02.md": {
+      "hash": "810c244d317a3332c74dc2baafb34bf00cf5ab2f",
+      "at": "2026-03-28T07:37:37Z",
+      "pr": 11539
+    },
+    ".agents/tools/ai-assistants/headless-dispatch.md": {
+      "hash": "47592db66559ea86da28f61d1000a0d80ce39edb",
+      "at": "2026-03-28T22:39:24Z",
+      "pr": 12307
+    },
+    ".agents/tools/document/document-creation.md": {
+      "hash": "245a303a923bd18c0adc820adb9620f12d636d2b",
+      "at": "2026-03-28T08:17:34Z",
+      "pr": 11592
+    },
+    ".agents/tools/design/ui-ux-inspiration.md": {
+      "hash": "fb4a8985ec3089753355c7a13d0665c878034369",
+      "at": "2026-03-28T08:17:35Z",
+      "pr": 11590
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-email-sequences.md": {
+      "hash": "5af4b4e800d180cb185bfa6d14ee93f2fc2661e9",
+      "at": "2026-03-28T13:37:24Z",
+      "pr": 11886
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-readme.md": {
+      "hash": "2717d1e9cb1edfd85d932502b6de7c4765c8a7ec",
+      "at": "2026-03-28T08:17:38Z",
+      "pr": 11571
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/tail-workers.md": {
+      "hash": "d909ab39413052950bcfff2d355bb102d17f8421",
+      "at": "2026-03-28T08:17:39Z",
+      "pr": 11562
+    },
+    ".agents/marketing-sales/meta-ads-optimization-scaling.md": {
+      "hash": "8034babf9a34b6f09f0cce7817a136ee38be0c1f",
+      "at": "2026-03-28T08:17:40Z",
+      "pr": 11564
+    },
+    ".agents/marketing-sales/meta-ads-optimization-troubleshooting.md": {
+      "hash": "684991a0c73063d140b0cfee3ad73691a479a34f",
+      "at": "2026-03-28T08:17:40Z",
+      "pr": 11564
+    },
+    ".agents/tools/database/vector-search/zvec.md": {
+      "hash": "1929000365507621f52d563ad2b63e9f51feab8d",
+      "at": "2026-03-28T08:17:41Z",
+      "pr": 11570
+    },
+    ".agents/tools/diagrams/mermaid-diagrams-skill/class-er.md": {
+      "hash": "e3929bc050f03d955e21543cfed73a4b69880579",
+      "at": "2026-03-28T08:17:42Z",
+      "pr": 11589
+    },
+    ".agents/tools/wordpress/wp-admin.md": {
+      "hash": "a02a72943cc4820447f81c73216b0f095c3f64e5",
+      "at": "2026-03-28T08:17:43Z",
+      "pr": 11587
+    },
+    ".agents/tools/wordpress/wp-cli-reference.md": {
+      "hash": "0425ba4c94fd45b032e849987736bc4073970a7e",
+      "at": "2026-03-28T08:17:43Z",
+      "pr": 11587
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-ad-copy-01-facebook-instagram.md": {
+      "hash": "4bfed86699b1e5a25050b85f099ca3fc580574d8",
+      "at": "2026-03-28T08:17:45Z",
+      "pr": 11593
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-ad-copy-02-google-search.md": {
+      "hash": "f9ecc39136c90a2feb8bc9075f3e95ba23fccddd",
+      "at": "2026-03-28T08:17:45Z",
+      "pr": 11593
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-ad-copy-03-linkedin.md": {
+      "hash": "a3c8015dc17258f154c7bdd4e4ccf0d4586a06db",
+      "at": "2026-03-28T08:17:45Z",
+      "pr": 11593
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-ad-copy-04-twitter.md": {
+      "hash": "615623c2156bb8eee3a9409900b33a895768e08d",
+      "at": "2026-03-28T08:17:45Z",
+      "pr": 11593
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-ad-copy-05-reference.md": {
+      "hash": "d34fe0576cb0cb1c1770a278ad5e149bba1480d0",
+      "at": "2026-03-28T08:17:45Z",
+      "pr": 11593
+    },
+    ".agents/tools/conversion/pandoc.md": {
+      "hash": "557667b032774727658d22f6b1c5392ec4a83660",
+      "at": "2026-03-28T08:17:47Z",
+      "pr": 11595
+    },
+    ".agents/content/research.md": {
+      "hash": "0844a394bf378618e923c821a3246e54fead511f",
+      "at": "2026-03-28T08:57:54Z",
+      "pr": 11644
+    },
+    ".agents/tools/performance/webpagetest.md": {
+      "hash": "e0b3e8da23436e916aecd40d37bceeea48f99642",
+      "at": "2026-03-28T08:17:50Z",
+      "pr": 11594
+    },
+    ".agents/tools/browser/crawl4ai.md": {
+      "hash": "967373980ca56ec85cb795eb9426efb91ff23ddb",
+      "at": "2026-03-28T08:17:51Z",
+      "pr": 11599
+    },
+    ".agents/content/heygen-skill/rules-dimensions.md": {
+      "hash": "f32c728a54e3edca1d713da0d536cb4b63299882",
+      "at": "2026-03-28T08:18:14Z",
+      "pr": 11610
+    },
+    ".agents/services/email/google-workspace.md": {
+      "hash": "d25ed82148411a5ce44101400e445cb3293c4e96",
+      "at": "2026-03-28T08:58:52Z",
+      "pr": 11613
+    },
+    ".agents/tools/architecture/feature-slicing-skill/layers.md": {
+      "hash": "aa5a10592a8a28db7e01ce256df9e7aa7ab57c76",
+      "at": "2026-03-28T08:18:16Z",
+      "pr": 11537
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/vectorize-gotchas.md": {
+      "hash": "10d5c38ac748a992e4619c4042a5ac685b009b3f",
+      "at": "2026-03-28T08:18:21Z",
+      "pr": 11631
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/vectorize-patterns.md": {
+      "hash": "aa4bc86ba1d820a999ff48479bc7af02bc524485",
+      "at": "2026-03-28T08:18:21Z",
+      "pr": 11631
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/vectorize.md": {
+      "hash": "c1d8339d4d9148d438f87b89220e85fa82e4c859",
+      "at": "2026-03-28T08:18:21Z",
+      "pr": 11631
+    },
+    ".agents/tools/voice/cloud-tts-apis.md": {
+      "hash": "0a7ff7444bf603ab6328a2248b32bd9faf422b02",
+      "at": "2026-03-28T08:18:23Z",
+      "pr": 11637
+    },
+    ".agents/tools/voice/local-tts-models.md": {
+      "hash": "a2985fa793b132d716e99ec9f9dd6eaf8252485a",
+      "at": "2026-03-28T08:18:24Z",
+      "pr": 11637
+    },
+    ".agents/tools/voice/voice-models.md": {
+      "hash": "1048bd3b6ac334dea9f2685aef4b09642f318673",
+      "at": "2026-03-28T08:18:24Z",
+      "pr": 11637
+    },
+    ".agents/services/hosting/101domains.md": {
+      "hash": "504d151b93c6073272de3fca00e08e6118720cf9",
+      "at": "2026-03-28T08:18:27Z",
+      "pr": 11633
+    },
+    ".agents/marketing-sales/ad-creative-chapter-05.md": {
+      "hash": "f8ded271e66b8024f24caa8a841ea58da90a709a",
+      "at": "2026-03-28T08:18:28Z",
+      "pr": 11555
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/workers-vpc.md": {
+      "hash": "fd8d3ba366abc324f0738e2e11fce322d92c654b",
+      "at": "2026-03-28T08:57:49Z",
+      "pr": 11677
+    },
+    ".agents/marketing-sales/ad-creative-chapter-03.md": {
+      "hash": "f2d79f61b3c28c3e902760bb469c29a465a777c3",
+      "at": "2026-03-28T15:30:26Z",
+      "pr": 11936
+    },
+    ".agents/services/communications/convos-bridge-template.sh": {
+      "hash": "cd850bc9a35a947206c1a4cf2e67313bb90f9644",
+      "at": "2026-03-28T08:57:52Z",
+      "pr": 11688
+    },
+    ".agents/services/communications/convos.md": {
+      "hash": "74e396568b01688f29f86d799f049f5b624b9205",
+      "at": "2026-03-28T08:57:52Z",
+      "pr": 11688
+    },
+    ".agents/tools/voice/cloud-voice-agents.md": {
+      "hash": "b389dcd17c677b3e21bc86397670fbf4d8a61b98",
+      "at": "2026-03-28T16:40:25Z",
+      "pr": 12005
+    },
+    ".agents/marketing-sales/direct-response-copy-swipe-file-vsl-scripts.md": {
+      "hash": "816a5f35e7ca6b338deae7db62c3058d317b96d6",
+      "at": "2026-03-28T08:57:56Z",
+      "pr": 11647
+    },
+    ".agents/content/video-runway.md": {
+      "hash": "54c5b2fe2d3cdd00e23f192d5f869c927b6e573e",
+      "at": "2026-03-28T08:58:00Z",
+      "pr": 11646
+    },
+    ".agents/marketing-sales/ad-creative-testing-optimization.md": {
+      "hash": "2f60c87e51dac14c539d02ba1a796a98b995c2c4",
+      "at": "2026-03-28T08:58:01Z",
+      "pr": 11614
+    },
+    ".agents/tools/diagrams/mermaid-diagrams-skill/data-charts.md": {
+      "hash": "ea8a64811a9c35a4274183f1c0c215be8c2a6aec",
+      "at": "2026-03-28T08:58:03Z",
+      "pr": 11602
+    },
+    ".agents/content.md": {
+      "hash": "2f71b51f39307e001e3af0bae81c5fc440c2da9b",
+      "at": "2026-03-28T08:58:04Z",
+      "pr": 11616
+    },
+    ".agents/marketing-sales/ad-creative-psychology-targeting.md": {
+      "hash": "c37b3f2fadeaae4f147248efd4fa535e89f1d96b",
+      "at": "2026-03-28T10:27:52Z",
+      "pr": 11655
+    },
+    ".agents/marketing-sales/direct-response-copy-swipe-file-vsl-scripts-example.md": {
+      "hash": "219b3f24929e0866af7e05c36250a267a5f2e952",
+      "at": "2026-03-28T08:58:28Z",
+      "pr": 11597
+    },
+    ".agents/marketing-sales/direct-response-copy-swipe-file-vsl-scripts-pastor-framework.md": {
+      "hash": "229aaf2fa58645152ccdd4ece9d723068b251f4a",
+      "at": "2026-03-28T08:58:28Z",
+      "pr": 11597
+    },
+    ".agents/tools/credentials/sops.md": {
+      "hash": "927fea51df6b5ed15ee41b1473f26bf7b526ca38",
+      "at": "2026-03-28T08:58:29Z",
+      "pr": 11560
+    },
+    ".agents/tools/api/better-auth.md": {
+      "hash": "8494627274fa59f222b8c19aeb61280ded29e8ec",
+      "at": "2026-03-28T08:58:32Z",
+      "pr": 11566
+    },
+    ".agents/aidevops/extension.md": {
+      "hash": "6b76dd6fa41470a5d1d4e5ebeea7af1b13b6a1e8",
+      "at": "2026-03-28T08:58:33Z",
+      "pr": 11565
+    },
+    ".agents/tools/wordpress/localwp.md": {
+      "hash": "e2a3ea522c2f0a4739825f594f236c92f0eee0fa",
+      "at": "2026-03-28T08:58:34Z",
+      "pr": 11563
+    },
+    ".agents/marketing-sales/ad-creative-platform-meta.md": {
+      "hash": "130ac72c8435b342b5be159ed84ab6633efdf4fa",
+      "at": "2026-03-28T08:58:35Z",
+      "pr": 11574
+    },
+    ".agents/marketing-sales/direct-response-copy-frameworks-headline-formulas.md": {
+      "hash": "9c23835b93de53e0d6371a5f753c1409e0374d9d",
+      "at": "2026-03-28T08:58:42Z",
+      "pr": 11548
+    },
+    ".agents/tools/document/extraction-schemas.md": {
+      "hash": "fa0ee1f8e92a38842d98674241507fd0cde43a81",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/01-design-principles.md": {
+      "hash": "c557fde290bb52a65fa91d603c4366fdb0fcf3e7",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/02-purchase-invoice.md": {
+      "hash": "d9c194618044c58a6f3a364bba869683957b26c1",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/03-expense-receipt.md": {
+      "hash": "8c0553d204c9f8e111f7bb211d9b8e99a8fac453",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/04-credit-note.md": {
+      "hash": "c58830493ee6a0ae1b3f77c6fb18a20db5e87ed4",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/05-sales-invoice.md": {
+      "hash": "50c68e48c09eb85c30259361ceadadca01795e5e",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/06-generic-receipt.md": {
+      "hash": "8cd493fef922d42decca280eaaec76c32de7f324",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/07-quickfile-mapping.md": {
+      "hash": "329bb22bc68c98571c6bd075a6458573830bcd99",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/08-vat-handling.md": {
+      "hash": "74ea1c15f941a48b3cb8d0a62dc8fa3ec590dd86",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/09-nominal-codes.md": {
+      "hash": "7210b70a3f8072de3d50be138635dced20594d9d",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/10-classification.md": {
+      "hash": "8822a182e225ee7360107f5e1938e4fc844670e3",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/11-pipeline-integration.md": {
+      "hash": "377abccc10cb93b5f8b51010a48d6d947553b71c",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/tools/document/extraction-schemas/12-validation.md": {
+      "hash": "85fb1862ed295cbba2a8c11ed8ccef35d25fc2c4",
+      "at": "2026-03-28T08:58:45Z",
+      "pr": 11601
+    },
+    ".agents/content/distribution-youtube-script-writer.md": {
+      "hash": "e7d74dc2884f946d2d3ad41287926a426d0b0edb",
+      "at": "2026-03-28T08:58:46Z",
+      "pr": 11603
+    },
+    ".agents/seo/site-crawler.md": {
+      "hash": "b57ba3a5214383ec97ea5c4838fabcd0ce900a20",
+      "at": "2026-03-28T08:58:48Z",
+      "pr": 11598
+    },
+    ".agents/services/communications/signal.md": {
+      "hash": "652f531e6f54f9fd38da5c5bd61889672eac4acf",
+      "at": "2026-03-28T08:58:53Z",
+      "pr": 11620
+    },
+    ".agents/tools/deployment/vercel.md": {
+      "hash": "c2084ec268e00720815607590f8bab4bc7082c53",
+      "at": "2026-03-28T08:58:54Z",
+      "pr": 11615
+    },
+    ".agents/workflows/postflight.md": {
+      "hash": "4e10936d7f2007c0c034ff2f2d8f8110bdf3d0dc",
+      "at": "2026-03-28T10:27:12Z",
+      "pr": 11739
+    },
+    ".agents/content/heygen-skill/rules-backgrounds.md": {
+      "hash": "7abf186ddedbabd5128f34ee918393a187de8cc3",
+      "at": "2026-03-28T09:17:34Z",
+      "pr": 11711
+    },
+    ".agents/services/communications/nostr.md": {
+      "hash": "eacafb8b13831574c6bc570c06903e15e7acd077",
+      "at": "2026-03-28T09:17:35Z",
+      "pr": 11715
+    },
+    ".agents/tools/deployment/uncloud.md": {
+      "hash": "f0efc54a4b03f1e5a1398d94d063d72218a8de21",
+      "at": "2026-03-28T09:17:40Z",
+      "pr": 11712
+    },
+    ".agents/marketing-sales/meta-ads-campaigns-retargeting.md": {
+      "hash": "76a66a236cc7fbeb40d74384e9dbe4bd75a4a155",
+      "at": "2026-03-28T11:52:21Z",
+      "pr": 11822
+    },
+    ".agents/content/heygen-skill/rules-remotion-integration.md": {
+      "hash": "5ccb546152546cd33344a76d42a4b90c0acd0dbd",
+      "at": "2026-03-28T10:27:14Z",
+      "pr": 11740
+    },
+    ".agents/services/payments/procurement.md": {
+      "hash": "cd9fc50f3fc0400fc70f712e5b20868aaa9ce293",
+      "at": "2026-03-28T09:48:49Z",
+      "pr": 11713
+    },
+    ".agents/tools/build-agent/build-agent.md": {
+      "hash": "35a0cfc6fa169fd38551c62efcb2fba11445b10e",
+      "at": "2026-03-29T00:03:35Z",
+      "pr": 12360
+    },
+    ".agents/content/distribution-youtube-topic-research.md": {
+      "hash": "d8d475231eff5b53cf27de5ab31aeedaec403e2f",
+      "at": "2026-03-28T11:20:29Z",
+      "pr": 11801
+    },
+    ".agents/content/heygen-skill/rules-captions.md": {
+      "hash": "5e31cf7b1019f79f2f70a450083143cd6704e356",
+      "at": "2026-03-28T09:48:53Z",
+      "pr": 11707
+    },
+    ".agents/services/database/postgres-drizzle-skill/cheatsheet.md": {
+      "hash": "07b30b06de54ff4544c7f468a6c6ba2d25215784",
+      "at": "2026-03-28T10:27:24Z",
+      "pr": 11709
+    },
+    ".agents/services/database/postgres-drizzle-skill/schema.md": {
+      "hash": "ed1952db54651cd46710ca9cfa4db950635e42a6",
+      "at": "2026-03-28T10:27:24Z",
+      "pr": 11709
+    },
+    ".agents/tools/ui/i18next.md": {
+      "hash": "ce750937b182da6a4a2cce512b141f16da789fcd",
+      "at": "2026-03-28T10:27:25Z",
+      "pr": 11710
+    },
+    ".agents/services/database/postgres-drizzle-skill/relations.md": {
+      "hash": "673a7c2abd65766f454b57e79a259a7217463210",
+      "at": "2026-03-28T09:48:57Z",
+      "pr": 11717
+    },
+    ".agents/tools/build-mcp/server-patterns.md": {
+      "hash": "c0e5bf0399f60ae53b3b09082ac6ced4debb8c76",
+      "at": "2026-03-28T10:27:33Z",
+      "pr": 11679
+    },
+    ".agents/tools/git/worktrunk.md": {
+      "hash": "bafc956a55ed67b84dfc0722955434b85dd6202e",
+      "at": "2026-03-28T10:27:11Z",
+      "pr": 11760
+    },
+    ".agents/content/distribution-youtube-pipeline.md": {
+      "hash": "ec344423c7366d10312a8ca44f60ca4232d34097",
+      "at": "2026-03-28T11:20:33Z",
+      "pr": 11763
+    },
+    ".agents/content/heygen-skill/rules-video-generation.md": {
+      "hash": "929341bdb16beeda9c31e050b53eddbe5badfd72",
+      "at": "2026-03-28T10:27:38Z",
+      "pr": 11675
+    },
+    ".agents/tools/code-review/best-practices.md": {
+      "hash": "b8f93fd83e04dc301d838178a7b7523e35382166",
+      "at": "2026-03-28T13:38:46Z",
+      "pr": 11771
+    },
+    ".agents/content/video-muapi.md": {
+      "hash": "3deffc1afc21c9cb3daf10a540c802fc70e437df",
+      "at": "2026-03-28T11:20:21Z",
+      "pr": 11800
+    },
+    ".agents/tools/browser/playwright-cli.md": {
+      "hash": "978be4b5b3043cfee751f9c966ba27ddd7fe5182",
+      "at": "2026-03-28T11:20:22Z",
+      "pr": 11802
+    },
+    ".agents/aidevops/requirements.md": {
+      "hash": "9a75f9e14252e2364ed8ceeb9e24e8df3a95e310",
+      "at": "2026-03-28T11:52:46Z",
+      "pr": 11770
+    },
+    ".agents/tools/video/yt-dlp.md": {
+      "hash": "93855bd751f355d6ef75134ba3322330fcb7d596",
+      "at": "2026-03-28T11:20:27Z",
+      "pr": 11752
+    },
+    ".agents/content/distribution-youtube-optimizer.md": {
+      "hash": "08796da4159346de335feb979d6ce0af181bb8ff",
+      "at": "2026-03-28T11:20:34Z",
+      "pr": 11731
+    },
+    ".agents/tools/credentials/gocryptfs.md": {
+      "hash": "8e128a21d4783c5499f073213aee1a20491893d5",
+      "at": "2026-03-28T11:20:36Z",
+      "pr": 11730
+    },
+    ".agents/tools/ui/nextjs-layouts.md": {
+      "hash": "df90871ad91810f05326405fe711c4ff4be9460b",
+      "at": "2026-03-28T11:20:37Z",
+      "pr": 11732
+    },
+    ".agents/content/distribution-social.md": {
+      "hash": "4ca38ce265bdd7a4921aeed56567dd38e5e98c32",
+      "at": "2026-03-28T11:20:38Z",
+      "pr": 11733
+    },
+    ".agents/tools/architecture/clean-ddd-hexagonal-skill/ddd-tactical.md": {
+      "hash": "a53f3400bd5c9142c7f9b186523697b16c1a28e2",
+      "at": "2026-03-28T11:20:40Z",
+      "pr": 11734
+    },
+    ".agents/content/production-writing.md": {
+      "hash": "525c4aab766775fa9f92155b85f58bcda67cf3ea",
+      "at": "2026-03-28T11:20:42Z",
+      "pr": 11788
+    },
+    ".agents/tools/architecture/clean-ddd-hexagonal-skill/testing.md": {
+      "hash": "2316ee0b050453056ecc075e712e88b436dd3dd9",
+      "at": "2026-03-28T13:38:11Z",
+      "pr": 11790
+    },
+    ".agents/workflows/ralph-loop.md": {
+      "hash": "552b1c4af3571c286790521b4cf26446ab3bb729",
+      "at": "2026-03-28T11:20:12Z",
+      "pr": 11789
+    },
+    ".agents/marketing-sales/meta-ads-audiences-targeting-strategies.md": {
+      "hash": "9802f4e7f19b67d5a8a45f1a137209082a585d4c",
+      "at": "2026-03-28T11:20:14Z",
+      "pr": 11791
+    },
+    ".agents/tools/api/vercel-ai-sdk.md": {
+      "hash": "e0a51bc87d3615a985b527cfe0265571672e2095",
+      "at": "2026-03-28T11:20:15Z",
+      "pr": 11792
+    },
+    ".agents/tools/ai-orchestration/overview.md": {
+      "hash": "1dca5c066203b5e0a14c4406e64b3f8e06aa3f85",
+      "at": "2026-03-28T11:20:16Z",
+      "pr": 11793
+    },
+    ".agents/tools/wordpress/mainwp.md": {
+      "hash": "e16169565844b28fa00ca62439a068eec8dd965f",
+      "at": "2026-03-28T11:20:17Z",
+      "pr": 11794
+    },
+    ".agents/services/hosting/hostinger.md": {
+      "hash": "bdc3391799c0fb32ef11f6d610f48f7debae2194",
+      "at": "2026-03-28T11:20:19Z",
+      "pr": 11804
+    },
+    ".agents/tools/architecture/clean-ddd-hexagonal-skill/ddd-strategic.md": {
+      "hash": "61e87ef7f501310f73fbe54da1d9e0a76a38abae",
+      "at": "2026-03-28T11:20:20Z",
+      "pr": 11805
+    },
+    ".agents/aidevops/supervisor-module-map.md": {
+      "hash": "6dc1ff5f9d7243b29d768c024123338d11496a5f",
+      "at": "2026-03-28T11:52:24Z",
+      "pr": 11811
+    },
+    ".agents/business/company-runners.md": {
+      "hash": "8c78821205aacf320a7ed32b722b7c646a4e35af",
+      "at": "2026-03-28T11:52:25Z",
+      "pr": 11812
+    },
+    ".agents/tools/infrastructure/fireworks.md": {
+      "hash": "6025fc8a3ce3cadba1f1d8d00c699c8fe970b015",
+      "at": "2026-03-28T11:52:26Z",
+      "pr": 11813
+    },
+    ".agents/workflows/git-workflow.md": {
+      "hash": "549fdf7138a059f5338b5cc825a3280fb4ee9a48",
+      "at": "2026-03-28T11:52:27Z",
+      "pr": 11814
+    },
+    ".agents/marketing-sales/ad-creative-copywriting.md": {
+      "hash": "84d60fe17b4cc01ac5bec4ce3363428510a2ece6",
+      "at": "2026-03-28T21:14:35Z",
+      "pr": 12018
+    },
+    ".agents/marketing-sales/direct-response-copy-templates-landing-page.md": {
+      "hash": "cbaa0cc29c6e3639ea5254866f8fefe1c02a329c",
+      "at": "2026-03-28T13:37:36Z",
+      "pr": 11840
+    },
+    ".agents/seo/gsc-sitemaps.md": {
+      "hash": "7154caa038f21e800f7b6c5493f2553a9d7e8efb",
+      "at": "2026-03-28T11:52:39Z",
+      "pr": 11821
+    },
+    ".agents/services/email/email-mailbox-search.md": {
+      "hash": "26c7c333d46a5319b598173b36c5c30124126c81",
+      "at": "2026-03-28T13:37:26Z",
+      "pr": 11869
+    },
+    ".agents/tools/browser/crawl4ai-resources.md": {
+      "hash": "3b91d1b3383285e813ef8eed5303e3a6fa8fa99d",
+      "at": "2026-03-28T13:37:22Z",
+      "pr": 11858
+    },
+    ".agents/tools/build-mcp/build-mcp.md": {
+      "hash": "9b3ca67c49dd5bf0af66b01061561502620de8b3",
+      "at": "2026-03-28T13:37:27Z",
+      "pr": 11844
+    },
+    ".agents/tools/deployment/daytona.md": {
+      "hash": "752d573096d1a59e09ee119494e907e2e17d34ee",
+      "at": "2026-03-28T13:37:28Z",
+      "pr": 11846
+    },
+    ".agents/tools/ocr/ocr-research.md": {
+      "hash": "667a0af0fe47f5c2c316520d13beb61f1f9d0b7f",
+      "at": "2026-03-28T13:37:30Z",
+      "pr": 11857
+    },
+    ".agents/seo/contentking.md": {
+      "hash": "ce7ecac379f3bc6552cf23ad3bd149902b0ace12",
+      "at": "2026-03-28T13:37:31Z",
+      "pr": 11845
+    },
+    ".agents/services/email/mission-email.md": {
+      "hash": "bf5446200b94e750fce11fc719c2904f47bd67c5",
+      "at": "2026-03-28T13:37:15Z",
+      "pr": 11889
+    },
+    ".agents/tools/mobile/app-store-connect.md": {
+      "hash": "8023c5d46c6d784bbc762f59d4c57d549e15903e",
+      "at": "2026-03-28T13:37:17Z",
+      "pr": 11893
+    },
+    ".agents/tools/browser/stagehand-examples.md": {
+      "hash": "3204f26c9d748fd843fe6db79a36a18581e78b49",
+      "at": "2026-03-28T14:15:24Z",
+      "pr": 11899
+    },
+    ".agents/tools/ui/wxt.md": {
+      "hash": "3705faa0407468fc44819d98501ad0ff13ca1934",
+      "at": "2026-03-28T13:37:50Z",
+      "pr": 11870
+    },
+    ".agents/tools/code-review/secretlint.md": {
+      "hash": "54a79997b8c268d6b3942204a8b6e23a251bcfe3",
+      "at": "2026-03-28T16:00:52Z",
+      "pr": 11991
+    },
+    ".agents/tools/database/pglite-local-first.md": {
+      "hash": "57487b7d3c5e896eaebeeccd458d76e65cae5b8d",
+      "at": "2026-03-28T15:30:29Z",
+      "pr": 11920
+    },
+    ".agents/tools/document/document-extraction.md": {
+      "hash": "b0e790ef3e6481f532436eab39cac1d6ec92430b",
+      "at": "2026-03-28T15:30:30Z",
+      "pr": 11919
+    },
+    ".agents/tools/code-review/runtime-patterns.md": {
+      "hash": "06e2affe5aaa285c3139fde0d808dc89c0140e31",
+      "at": "2026-03-28T13:38:47Z",
+      "pr": 11771
+    },
+    ".agents/tools/browser/dev-browser.md": {
+      "hash": "5ff7878823ad9efd84ccc040b7165ca79150f8d4",
+      "at": "2026-03-28T15:30:31Z",
+      "pr": 11921
+    },
+    ".agents/tools/code-review/code-standards.md": {
+      "hash": "88d5b9dc281a4557707da37dee72529d600faaf8",
+      "at": "2026-03-28T15:30:22Z",
+      "pr": 11944
+    },
+    ".agents/scripts/commands/full-loop.md": {
+      "hash": "2eeeca1b29f37da006c4497e49fcb041fbfbe0b8",
+      "at": "2026-03-28T23:06:40Z",
+      "pr": 12164
+    },
+    ".agents/workflows/pr.md": {
+      "hash": "4a3037a4141b69625fe2949f51e1a21a63bfa8ce",
+      "at": "2026-03-28T15:30:43Z",
+      "pr": 11878
+    },
+    ".agents/tools/git/conflict-resolution.md": {
+      "hash": "f5933df58340b4ee0c5b329808c991807ed8a047",
+      "at": "2026-03-28T14:15:35Z",
+      "pr": 11909
+    },
+    ".agents/aidevops/configs.md": {
+      "hash": "fecc0e08b16083bdd8f7e82c6f1636c136af3287",
+      "at": "2026-03-28T15:30:49Z",
+      "pr": 11897
+    },
+    ".agents/services/communications/twilio.md": {
+      "hash": "e0541a43f7a10413213681c64f35a4bfd4dd6616",
+      "at": "2026-03-28T14:15:37Z",
+      "pr": 11900
+    },
+    ".agents/marketing-sales/ad-creative-platform-google.md": {
+      "hash": "f64e3f66de660586a2c510e31ce4a942286cf079",
+      "at": "2026-03-28T15:30:26Z",
+      "pr": 11936
+    },
+    ".agents/tools/ai-assistants/openclaw.md": {
+      "hash": "0c4d4c08590b9a3dc260a05d39c76148057c928c",
+      "at": "2026-03-28T14:15:40Z",
+      "pr": 11901
+    },
+    ".agents/content/video-wavespeed.md": {
+      "hash": "ef2bf4d381397992153760c0f74ea060eb5260fc",
+      "at": "2026-03-28T14:15:41Z",
+      "pr": 11895
+    },
+    ".agents/seo/debug-opengraph.md": {
+      "hash": "7ac97dce072fe9fa2c5cc80526b57b3618883608",
+      "at": "2026-03-28T14:15:42Z",
+      "pr": 11898
+    },
+    ".agents/aidevops/plugins.md": {
+      "hash": "b6beaa25a6400b7ce7586a389605bb7b5cde0b1c",
+      "at": "2026-03-28T14:15:43Z",
+      "pr": 11894
+    },
+    ".agents/services/hosting/local-hosting.md": {
+      "hash": "ac2a557901e0a9c39b034b664927c37847635345",
+      "at": "2026-03-28T16:41:15Z",
+      "pr": 12026
+    },
+    ".agents/tools/data-extraction/outscraper.md": {
+      "hash": "a3e3c1fee3571f9cfe07e4f90d47e3aa0c2c758a",
+      "at": "2026-03-28T16:41:16Z",
+      "pr": 12021
+    },
+    ".agents/content/distribution-email.md": {
+      "hash": "d218dc3fdd2a3e501978d431530820ce810b354e",
+      "at": "2026-03-28T16:00:42Z",
+      "pr": 11989
+    },
+    ".agents/services/database/postgres-drizzle-skill/migrations.md": {
+      "hash": "1b9f3f2536dd65950e7eec906f4c44467b9619e8",
+      "at": "2026-03-28T16:00:44Z",
+      "pr": 11966
+    },
+    ".agents/workflows/code-audit-remote.md": {
+      "hash": "2702ee79b7d0f63a13b19d69171f937db3e37064",
+      "at": "2026-03-28T15:31:24Z",
+      "pr": 11825
+    },
+    ".agents/tools/credentials/api-key-setup.md": {
+      "hash": "ee10d602e9a5a6b081507cf9ff52a2d8fc4eed86",
+      "at": "2026-03-28T14:16:13Z",
+      "pr": 11908
+    },
+    ".agents/marketing-sales/ad-creative.md": {
+      "hash": "5f15bf5c531e8ca2d4c6cde4ce7595f07fddfa65",
+      "at": "2026-03-29T01:52:03Z",
+      "pr": 12451
+    },
+    ".agents/tools/mcp-toolkit/mcporter.md": {
+      "hash": "9a7f856e52fb6226b2661e21b00fee79fd906561",
+      "at": "2026-03-28T14:16:17Z",
+      "pr": 11906
+    },
+    ".agents/marketing-sales/ad-creative-campaign-management.md": {
+      "hash": "cf88e0ca297eabefcb235d1359ee6d2b0e75d576",
+      "at": "2026-03-28T16:00:35Z",
+      "pr": 11974
+    },
+    ".agents/marketing-sales/direct-response-copy-swipe-file-headlines.md": {
+      "hash": "f74ee77c8e774c79829f80e238c09adbe6f3c21e",
+      "at": "2026-03-28T15:30:24Z",
+      "pr": 11945
+    },
+    ".agents/tools/diagrams/mermaid-diagrams-skill.md": {
+      "hash": "97a482f311bb9a1a99a103e7b77f815c8ce8af7e",
+      "at": "2026-03-28T15:30:35Z",
+      "pr": 11935
+    },
+    ".agents/tools/diagrams/mermaid-diagrams-skill/architecture.md": {
+      "hash": "9fda0fe135c5d900b529cbf4c9b5095c72c9a79d",
+      "at": "2026-03-28T16:00:33Z",
+      "pr": 11987
+    },
+    ".agents/tools/video/remotion.md": {
+      "hash": "e587ff6f81433c2bcc6b89ee139561849007d27e",
+      "at": "2026-03-28T15:30:25Z",
+      "pr": 11961
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/c3.md": {
+      "hash": "6ffc77f50024207bbb549b337789b8c9cbd8f475",
+      "at": "2026-03-28T15:30:18Z",
+      "pr": 11962
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/r2-sql.md": {
+      "hash": "3078a83990f41df192998904d47d0641191e7fba",
+      "at": "2026-03-28T16:00:25Z",
+      "pr": 11985
+    },
+    ".agents/tools/performance/performance.md": {
+      "hash": "478f1736c9c362f035765d45caddb4eebdec8071",
+      "at": "2026-03-28T16:00:21Z",
+      "pr": 11983
+    },
+    ".agents/aidevops/troubleshooting.md": {
+      "hash": "9b1e6b69bbb4c48b5d664dbb23d72a25eb867b0f",
+      "at": "2026-03-28T16:00:22Z",
+      "pr": 11982
+    },
+    ".agents/marketing-sales/cro-chapter-12.md": {
+      "hash": "f733b449021696b03a6678fba02aca9940fdeb6a",
+      "at": "2026-03-28T16:00:24Z",
+      "pr": 11988
+    },
+    ".agents/content/production-image.md": {
+      "hash": "b3409136a94a117c8a727fa3e1ca400d77806a36",
+      "at": "2026-03-28T16:40:38Z",
+      "pr": 12023
+    },
+    ".agents/tools/voice/voiceink-shortcut.md": {
+      "hash": "1d7af55d9fbf66d24dcb4f1cbba443617f0c992c",
+      "at": "2026-03-28T16:40:39Z",
+      "pr": 12017
+    },
+    ".agents/scripts/commands/testing-setup.md": {
+      "hash": "f653aacf0e67efffd18058625b81f790e9c9f741",
+      "at": "2026-03-28T16:40:41Z",
+      "pr": 12013
+    },
+    ".agents/workflows/multi-repo-workspace.md": {
+      "hash": "00ea218df67c941a8858e0da60f7c252c850db7a",
+      "at": "2026-03-28T16:00:32Z",
+      "pr": 11984
+    },
+    ".agents/workflows/version-bump.md": {
+      "hash": "d4d8c82182a0c0fce47622e76556260a11747ee8",
+      "at": "2026-03-28T16:00:36Z",
+      "pr": 11986
+    },
+    ".agents/content/video-higgsfield.md": {
+      "hash": "365b9f6acbaa7e54b14209c7eaee723372e836d6",
+      "at": "2026-03-28T16:00:37Z",
+      "pr": 11993
+    },
+    ".agents/services/hosting/cloudflare.md": {
+      "hash": "03302cdf932dc93c537c70aa12314ceb8442325e",
+      "at": "2026-03-28T16:00:49Z",
+      "pr": 11992
+    },
+    ".agents/services/monitoring/langwatch.md": {
+      "hash": "a56ed459849e479aaed06d6ac42bf0d60a28adf9",
+      "at": "2026-03-28T16:00:51Z",
+      "pr": 11994
+    },
+    ".agents/tools/wordpress/scf.md": {
+      "hash": "4c62a3f4c5312a10699889660578437def83e31e",
+      "at": "2026-03-28T16:40:07Z",
+      "pr": 12035
+    },
+    ".agents/workflows/readme-create-update.md": {
+      "hash": "f54854963d94f3c9b4e15769c07b3c8c27db1c5a",
+      "at": "2026-03-28T16:40:10Z",
+      "pr": 12038
+    },
+    ".agents/services/email/email-actions.md": {
+      "hash": "6e4fd843160e764848c98da37b2234e11ddfa56d",
+      "at": "2026-03-28T16:40:11Z",
+      "pr": 12039
+    },
+    ".agents/tools/architecture/feature-slicing-skill/public-api.md": {
+      "hash": "52069355367fb596967a8aef0bb6ad7f8e9861c3",
+      "at": "2026-03-28T16:40:13Z",
+      "pr": 12030
+    },
+    ".agents/product/growth.md": {
+      "hash": "97246dfba596c1be9241c0b669c611df856e71bc",
+      "at": "2026-03-28T16:40:15Z",
+      "pr": 12037
+    },
+    ".agents/services/email/email-delivery-test.md": {
+      "hash": "229f4a8a141175830e0207dbb58b13d9146b22ab",
+      "at": "2026-03-28T16:40:17Z",
+      "pr": 12041
+    },
+    ".agents/services/email/openpgp-setup.md": {
+      "hash": "f893cd98da28874d714707765c45a895d991cede",
+      "at": "2026-03-28T16:40:18Z",
+      "pr": 12040
+    },
+    ".agents/tools/programming/modern-javascript-skill/cheatsheet.md": {
+      "hash": "5043165087af14cf58963d7a76e48ceed463cb6d",
+      "at": "2026-03-28T16:40:20Z",
+      "pr": 12042
+    },
+    ".agents/services/hosting/cloudron.md": {
+      "hash": "e9d97dc1a3a3dbe0bb45134f1148c74954fa577c",
+      "at": "2026-03-28T16:40:22Z",
+      "pr": 12046
+    },
+    ".agents/tools/voice/pipecat-opencode.md": {
+      "hash": "53d34b6a543b30dcbc6141ccea72d1364e7ae07d",
+      "at": "2026-03-28T16:40:27Z",
+      "pr": 12019
+    },
+    ".agents/marketing-sales/meta-ads.md": {
+      "hash": "19b4754a783dd4b878bb5cf4032420f1cfab931d",
+      "at": "2026-03-28T16:40:30Z",
+      "pr": 12024
+    },
+    ".agents/tools/context/augment-context-engine.md": {
+      "hash": "bbae0554351a40b90c0df31e139c6391601f3e2b",
+      "at": "2026-03-28T16:40:32Z",
+      "pr": 12015
+    },
+    ".agents/tools/conversion/mineru.md": {
+      "hash": "beeb4a49df5e2a8ea91da9100ae2ba8887cf6b3d",
+      "at": "2026-03-28T16:40:36Z",
+      "pr": 12012
+    },
+    ".agents/marketing-sales/cro-chapter-14.md": {
+      "hash": "a15acda5b82f46b01af4961ff5c01fa7483e5cea",
+      "at": "2026-03-28T16:40:42Z",
+      "pr": 12027
+    },
+    ".agents/content/production-characters.md": {
+      "hash": "f26a85f43d79aed7426a749dab9407537412d65b",
+      "at": "2026-03-28T16:40:48Z",
+      "pr": 12025
+    },
+    ".agents/tools/code-review/security-audit.md": {
+      "hash": "bed16a626f218a4a0045edaae30edfa52616f72c",
+      "at": "2026-03-28T17:11:18Z",
+      "pr": 12029
+    },
+    ".agents/tools/security/privacy-filter.md": {
+      "hash": "20015ffb18e50ebb7071f1b6299b4404bdcd4071",
+      "at": "2026-03-28T16:41:02Z",
+      "pr": 12014
+    },
+    ".agents/tools/security/shannon.md": {
+      "hash": "a48914d21141559b0cf7677395979bd17f429b85",
+      "at": "2026-03-28T16:41:03Z",
+      "pr": 12016
+    },
+    ".agents/business/accounts-receipt-ocr.md": {
+      "hash": "7500c09629a5e47688af67a6901d684e92b623f2",
+      "at": "2026-03-28T16:41:24Z",
+      "pr": 12020
+    },
+    ".agents/tools/security/prompt-injection-defender.md": {
+      "hash": "0ee667b145d5e9aa8e6aefabf4ddc1c717cac0a0",
+      "at": "2026-03-28T17:11:06Z",
+      "pr": 12057
+    },
+    ".agents/seo/domain-research-api-reference.md": {
+      "hash": "52e574da550501d13cf7d760d098926843d5260b",
+      "at": "2026-03-28T17:11:07Z",
+      "pr": 12056
+    },
+    ".agents/seo/domain-research.md": {
+      "hash": "18f017104a97c94157077b8fc620e24bad8f86ba",
+      "at": "2026-03-28T17:11:08Z",
+      "pr": 12056
+    },
+    ".agents/scripts/commands/define.md": {
+      "hash": "7426c88c3d9ef90d25299174e2595c2adf764976",
+      "at": "2026-03-28T17:11:09Z",
+      "pr": 12054
+    },
+    ".agents/tools/browser/skyvern.md": {
+      "hash": "1f2933d4cdf35fd9696301a5743ae2e550a31eb0",
+      "at": "2026-03-28T17:11:10Z",
+      "pr": 12055
+    },
+    ".agents/seo/dataforseo.md": {
+      "hash": "8dfaad77d57b706e697ab23a2c8ac8a84cf9c6ed",
+      "at": "2026-03-28T17:11:12Z",
+      "pr": 12053
+    },
+    ".agents/tools/video/video-prompt-design.md": {
+      "hash": "ba533270f9fe5f9dab9fe60e3a4eef1420e2bd6c",
+      "at": "2026-03-28T17:30:25Z",
+      "pr": 12071
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/durable-objects-patterns.md": {
+      "hash": "70f6f1b16aeb637c122232aa75b789bedfbe63a7",
+      "at": "2026-03-28T21:50:53Z",
+      "pr": 12192
+    },
+    ".agents/tools/browser/fingerprint-profiles.md": {
+      "hash": "d910625e173f65063d64d51ca549494b97a2ba87",
+      "at": "2026-03-28T17:30:27Z",
+      "pr": 12070
+    },
+    ".agents/tools/code-review/qlty.md": {
+      "hash": "3c3fef1897ddb0b0bb88a35205dfd4d6f715db13",
+      "at": "2026-03-28T18:36:46Z",
+      "pr": 12114
+    },
+    ".agents/tools/research/providers/wappalyzer.md": {
+      "hash": "ef665188513a7db11f82af28c6b0440d2b3943d5",
+      "at": "2026-03-28T20:17:04Z",
+      "pr": 12115
+    },
+    ".agents/services/communications/matterbridge.md": {
+      "hash": "10f123307b4f6919f65b9c46a2e9b5aecf37ef37",
+      "at": "2026-03-29T01:04:18Z",
+      "pr": 12399
+    },
+    ".agents/services/communications/simplex.md": {
+      "hash": "0fae9edf453dabb06fafed112e578d6f45e0f96c",
+      "at": "2026-03-28T20:16:50Z",
+      "pr": 12168
+    },
+    ".agents/tools/browser/watercrawl.md": {
+      "hash": "c3fc2a3c5ee117daba5dfbfae490dfb406b9e711",
+      "at": "2026-03-28T19:15:30Z",
+      "pr": 12117
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/pulumi-gotchas.md": {
+      "hash": "d6c5d947d875cdc44eaa56161654450e39a0596e",
+      "at": "2026-03-28T19:15:33Z",
+      "pr": 12113
+    },
+    ".agents/scripts/framework-issue-helper.sh": {
+      "hash": "a53fde8f11aabd50fbda03386f967721d987e07a",
+      "at": "2026-03-29T00:24:21Z",
+      "pr": 12145
+    },
+    ".agents/scripts/pulse-wrapper.sh": {
+      "hash": "e2b24a88b8432039016fb2efd47a4b6322f267ae",
+      "at": "2026-03-28T21:59:51Z",
+      "pr": 12146
+    },
+    ".agents/tools/browser/stagehand-python.md": {
+      "hash": "b08490af463189a93ec652b087e8ac7238a018d0",
+      "at": "2026-03-28T19:42:04Z",
+      "pr": 12132
+    },
+    ".agents/tools/architecture/feature-slicing-skill/implementation.md": {
+      "hash": "91baa20a0d8cea7599db1f40f700ec767b4ea44c",
+      "at": "2026-03-28T20:16:39Z",
+      "pr": 12160
+    },
+    ".agents/tools/pdf/libpdf.md": {
+      "hash": "9d4d5fd4651f9132fb47d6467e53683fd7f0553b",
+      "at": "2026-03-28T20:16:42Z",
+      "pr": 12161
+    },
+    ".agents/services/email/email-agent.md": {
+      "hash": "4c589d1b951ae82f8dbb4a9e7ff05235f5edc6db",
+      "at": "2026-03-28T20:16:44Z",
+      "pr": 12163
+    },
+    ".agents/services/hosting/cloudflare-platform-skill.md": {
+      "hash": "6008b298c541d6b044eb0779f76074b818140d27",
+      "at": "2026-03-28T20:16:45Z",
+      "pr": 12162
+    },
+    ".agents/scripts/gh-signature-helper.sh": {
+      "hash": "3aa143a2cb84df3a7564566bac3b89a97b8041f4",
+      "at": "2026-03-29T01:34:06Z",
+      "pr": 12165
+    },
+    ".agents/tools/wordpress/wp-dev.md": {
+      "hash": "aeead744dd3a6ab5c8a9e6cf300adf03cbebceb9",
+      "at": "2026-03-28T20:55:30Z",
+      "pr": 12191
+    },
+    ".agents/content/distribution-short-form.md": {
+      "hash": "8350ba659dc7fbcbecd70b55d52b65d296ce5401",
+      "at": "2026-03-28T20:16:49Z",
+      "pr": 12172
+    },
+    ".agents/content/platform-personas.md": {
+      "hash": "b0c32995086af230ae41412dd2dca98054968ce2",
+      "at": "2026-03-28T20:16:53Z",
+      "pr": 12167
+    },
+    ".agents/services/communications/privacy-comparison.md": {
+      "hash": "d36b5a85b507a958a555b6311d3266035d619ba8",
+      "at": "2026-03-28T20:16:54Z",
+      "pr": 12169
+    },
+    ".agents/services/database/multi-org-isolation.md": {
+      "hash": "2a09353ed9cbb973b0dd0344a938412bcc5b859e",
+      "at": "2026-03-28T21:59:22Z",
+      "pr": 12249
+    },
+    ".agents/workflows/review-issue-pr.md": {
+      "hash": "14ac8f78bcfbb8ec23df3e37c021b7cd512c2f5b",
+      "at": "2026-03-28T22:39:25Z",
+      "pr": 12308
+    },
+    ".agents/tools/browser/browser-qa.md": {
+      "hash": "629aa3a1df673d6e5df7310d173da5d3938aa04e",
+      "at": "2026-03-28T20:17:06Z",
+      "pr": 12171
+    },
+    ".agents/tools/mobile/app-dev-swift.md": {
+      "hash": "d27215290fea61b4f036405bedc16867db3935bc",
+      "at": "2026-03-29T01:52:34Z",
+      "pr": 12450
+    },
+    ".agents/tools/context/context7.md": {
+      "hash": "1d98876794a7dc00b2cd2126492a54302f051af8",
+      "at": "2026-03-28T20:56:05Z",
+      "pr": 12182
+    },
+    ".agents/marketing-sales/ad-creative-ai-tools-reference.md": {
+      "hash": "8faff4defc9b64a16a6da7b996a86d29763bb87e",
+      "at": "2026-03-28T20:56:07Z",
+      "pr": 12183
+    },
+    ".agents/seo/eeat-score.md": {
+      "hash": "bb9c0e98f32d0453eb08cbbb4222f06c1a13b007",
+      "at": "2026-03-28T20:56:08Z",
+      "pr": 12181
+    },
+    ".agents/tools/automation/cron-agent.md": {
+      "hash": "fbf1c6bc76acc1436d3da1b0b34296be5193de5a",
+      "at": "2026-03-28T20:56:11Z",
+      "pr": 12184
+    },
+    ".agents/marketing-sales/meta-ads-creative-briefs-ugc-brief.md": {
+      "hash": "b3cbdabb7633b010839689527b084c198f34bdc9",
+      "at": "2026-03-28T21:27:17Z",
+      "pr": 12217
+    },
+    ".agents/seo/keyword-research.md": {
+      "hash": "d00bca2d9a784bfd220b4afd767d384d83bea740",
+      "at": "2026-03-28T21:27:18Z",
+      "pr": 12220
+    },
+    ".agents/services/email/microsoft-graph.md": {
+      "hash": "953bb07aef8c8ed23c023cc574b6390196e3b16d",
+      "at": "2026-03-28T21:27:21Z",
+      "pr": 12218
+    },
+    ".agents/services/hosting/closte.md": {
+      "hash": "a9295d1bd4b72a378606ad987d9ea3d5385734c8",
+      "at": "2026-03-28T21:27:23Z",
+      "pr": 12219
+    },
+    ".agents/services/communications/telegram.md": {
+      "hash": "96307f35314ef975fc24bfc8ea3098ac307e2373",
+      "at": "2026-03-28T21:58:54Z",
+      "pr": 12233
+    },
+    ".agents/tools/architecture/clean-ddd-hexagonal-skill/layers.md": {
+      "hash": "2fde1ee5df8c1bbde677a3198fe1c39df860a6ba",
+      "at": "2026-03-28T21:58:55Z",
+      "pr": 12236
+    },
+    ".agents/tools/programming/modern-javascript-skill/es2025.md": {
+      "hash": "e23026c24b61f06282834858aead51f63df3de4d",
+      "at": "2026-03-28T21:58:57Z",
+      "pr": 12234
+    },
+    ".agents/aidevops/resources.md": {
+      "hash": "4c8aa012ca51de765daed452692f619d55c701b1",
+      "at": "2026-03-28T21:58:59Z",
+      "pr": 12244
+    },
+    ".agents/tools/git/opencode-github-security.md": {
+      "hash": "7614267ce5278cc0f8d3e46a9301f179a610b9f3",
+      "at": "2026-03-28T22:39:20Z",
+      "pr": 12309
+    },
+    ".agents/tools/animation/animejs.md": {
+      "hash": "fb0605a7aff7c11d1195483651a7a91499de6dbc",
+      "at": "2026-03-29T02:36:25Z",
+      "pr": 12459
+    },
+    ".agents/tools/build-mcp/deployment.md": {
+      "hash": "0229a7490f42dcf4f3b8c0958fefd7ff53f3b8a2",
+      "at": "2026-03-28T22:39:22Z",
+      "pr": 12311
+    },
+    ".agents/tools/browser/chrome-devtools.md": {
+      "hash": "13576e2127eccb1c8555a5b12660265ac4ebd8aa",
+      "at": "2026-03-28T22:39:23Z",
+      "pr": 12310
+    },
+    ".agents/tools/opencode/opencode.md": {
+      "hash": "c1946355da50dc0ba2001b5582c2699600faff95",
+      "at": "2026-03-28T21:59:13Z",
+      "pr": 12240
+    },
+    ".agents/tools/browser/browser-profiles.md": {
+      "hash": "d719a6a108c1d6f84089ca53d09bc82579c5aa85",
+      "at": "2026-03-29T01:52:18Z",
+      "pr": 12449
+    },
+    ".agents/services/networking/netbird.md": {
+      "hash": "824fc7ee7cdc7e08351310bdb9f99dcf91a3848e",
+      "at": "2026-03-29T01:33:20Z",
+      "pr": 12453
+    },
+    ".agents/content/heygen-skill/rules-templates.md": {
+      "hash": "9bb00be8a5060b8b66412adc859335c7d193546d",
+      "at": "2026-03-28T21:59:23Z",
+      "pr": 12247
+    },
+    ".agents/marketing-sales/ad-creative-chapter-01.md": {
+      "hash": "e832ef8eb425956cec38a250eede0227342a4d79",
+      "at": "2026-03-28T23:05:56Z",
+      "pr": 12325
+    },
+    ".agents/marketing-sales/ad-creative-chapters.md": {
+      "hash": "7389f5acbff5e5b272cc97a5c5285e8a9b735427",
+      "at": "2026-03-28T23:05:56Z",
+      "pr": 12325
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/terraform-gotchas.md": {
+      "hash": "2111a2577e4e29eec771f709231f08fa22db2fc0",
+      "at": "2026-03-28T23:05:57Z",
+      "pr": 12324
+    },
+    ".agents/scripts/commands/new-task.md": {
+      "hash": "efc169b2e604ea55058ffa7ebae2224cc5286699",
+      "at": "2026-03-28T23:05:58Z",
+      "pr": 12328
+    },
+    ".agents/scripts/commands/runners.md": {
+      "hash": "e15f89fc275c14393073efaa842849957733470c",
+      "at": "2026-03-28T23:06:00Z",
+      "pr": 12326
+    },
+    ".agents/seo/debug-favicon.md": {
+      "hash": "f9e871983fc1d52343dd069d7652c33e7268ae92",
+      "at": "2026-03-28T23:06:01Z",
+      "pr": 12327
+    },
+    ".agents/tools/code-review/code-simplifier.md": {
+      "hash": "16060410cb16b5b3d10cb77e44a10fb4a0051c32",
+      "at": "2026-03-29T00:03:35Z",
+      "pr": 12360
+    },
+    ".agents/tools/build-agent/add-skill.md": {
+      "hash": "36065ac3559aa2e929cbb858c8220961454f9dd9",
+      "at": "2026-03-29T01:03:17Z",
+      "pr": 12376
+    },
+    ".agents/services/hosting/cloudflare-platform-skill/sandbox-patterns.md": {
+      "hash": "49d87469f73578ad10a6c6de4715c7b60af41b7f",
+      "at": "2026-03-29T01:03:18Z",
+      "pr": 12379
+    },
+    ".agents/content/distribution-youtube.md": {
+      "hash": "a44106f7677388ea6146e99c5c94de36b9e337ba",
+      "at": "2026-03-29T01:03:19Z",
+      "pr": 12386
+    },
+    ".agents/tools/build-mcp/transports.md": {
+      "hash": "733acaf8682f80a53cd3c2a996c0571adf7ac018",
+      "at": "2026-03-29T01:04:08Z",
+      "pr": 12394
+    },
+    ".agents/marketing-sales/meta-ads-campaigns-testing-abo.md": {
+      "hash": "be737a2fe12892ef6479a1939cbe4b6fee46db16",
+      "at": "2026-03-29T01:04:17Z",
+      "pr": 12395
+    },
+    ".agents/marketing-sales/ad-creative-chapter-08.md": {
+      "hash": "cff567e1f6215e9c459e5d97d022a93f34d1c322",
+      "at": "2026-03-29T01:04:19Z",
+      "pr": 12398
+    },
+    ".agents/marketing-sales/cro-chapter-07.md": {
+      "hash": "faba8a64f3996ee2e5722dd4b7c822d49f79c1b6",
+      "at": "2026-03-29T02:36:03Z",
+      "pr": 12463
+    },
+    ".agents/marketing-sales/ad-creative-chapter-07.md": {
+      "hash": "c79c8baa955bb48f1ce2ded8036ded7940948031",
+      "at": "2026-03-29T01:33:56Z",
+      "pr": 12442
+    },
+    ".agents/tools/browser/playwriter.md": {
+      "hash": "f651e0a3987dd6247f155c855562a0e53356ede0",
+      "at": "2026-03-29T02:37:06Z",
+      "pr": 12434
+    },
+    ".agents/services/networking/tailscale.md": {
+      "hash": "e930b52dfd40905e93923b036c57b9ffc2bfa011",
+      "at": "2026-03-29T02:36:04Z",
+      "pr": 12461
+    }
+  }
+}

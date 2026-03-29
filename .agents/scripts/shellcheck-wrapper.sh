@@ -29,6 +29,19 @@
 
 set -uo pipefail
 
+# --- Recursion guard ---
+# When setup.sh replaces the real shellcheck binary with this wrapper AND the
+# PATH shim also points to this wrapper, _find_real_shellcheck can mistake one
+# copy for the "real" binary (different realpath, same content). Each copy then
+# invokes the other, creating an infinite fork loop where every process hits the
+# 120s watchdog timeout. The env var breaks the cycle: if we're already inside
+# a wrapper, skip the search and run the real binary directly.
+if [[ "${_SHELLCHECK_WRAPPER_ACTIVE:-}" == "1" ]]; then
+	echo "shellcheck-wrapper: ERROR: recursive invocation detected — cannot find real shellcheck" >&2
+	exit 1
+fi
+export _SHELLCHECK_WRAPPER_ACTIVE=1
+
 # --- Validation ---
 # Validate that a value is a positive integer; coerce invalid/too-small values
 # to a safe default and log a warning. Prevents tight loops or premature aborts
@@ -62,6 +75,28 @@ readonly BACKOFF_FILE="${BACKOFF_DIR}/shellcheck-backoff"
 readonly MAX_BACKOFF=300 # 5 minutes max backoff
 
 # --- Find the real ShellCheck binary ---
+# Check if a candidate is a copy of this wrapper (not the real shellcheck).
+# The real shellcheck is a compiled binary (ELF/Mach-O); this wrapper is a
+# shell script. Checking the first bytes avoids the infinite recursion where
+# two copies of the wrapper each treat the other as the "real" binary.
+_is_wrapper_copy() {
+	local candidate="$1"
+	# Real shellcheck is a compiled binary — first bytes are ELF magic (\x7fELF)
+	# or Mach-O magic. Shell scripts start with "#!" (shebang).
+	# A 2-byte read is sufficient to distinguish.
+	local header
+	header="$(head -c 2 "$candidate" 2>/dev/null)" || return 1
+	if [[ "$header" == "#!" ]]; then
+		# It's a script — check if it's specifically our wrapper
+		if head -5 "$candidate" 2>/dev/null | grep -q "shellcheck-wrapper" 2>/dev/null; then
+			return 0 # yes, it's a wrapper copy
+		fi
+		# Some other shell script named shellcheck — still not the real binary
+		return 0
+	fi
+	return 1 # not a script, likely the real binary
+}
+
 _find_real_shellcheck() {
 	local real_path="${SHELLCHECK_REAL_PATH:-}"
 
@@ -72,10 +107,22 @@ _find_real_shellcheck() {
 
 	# Fast path: check .real sibling of this script's location first.
 	# When setup.sh replaces the binary, it moves it to shellcheck.real.
-	# This avoids expensive PATH scanning and realpath resolution.
-	local self_dir
-	self_dir="$(dirname "${BASH_SOURCE[0]}" 2>/dev/null || echo ".")"
+	# Resolve symlinks before computing self_dir so that when the wrapper is
+	# invoked via a symlink (e.g. /opt/homebrew/bin/shellcheck → Cellar path),
+	# self_dir reflects the symlink's directory (/opt/homebrew/bin/) where the
+	# .real sibling lives — not the Cellar directory the symlink resolves to.
+	local self_resolved
+	self_resolved="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+	# Also check the unresolved (symlink) directory — covers the case where
+	# setup.sh placed the wrapper at the symlink path and .real is co-located.
+	local self_dir self_link_dir
+	self_dir="$(dirname "$self_resolved" 2>/dev/null || echo ".")"
+	self_link_dir="$(dirname "${BASH_SOURCE[0]}" 2>/dev/null || echo ".")"
 	local sibling="${self_dir}/shellcheck.real"
+	# If the resolved and unresolved dirs differ, also check the symlink dir
+	if [[ "$self_dir" != "$self_link_dir" && ! -x "$sibling" ]]; then
+		sibling="${self_link_dir}/shellcheck.real"
+	fi
 	if [[ -x "$sibling" ]]; then
 		printf '%s' "$sibling"
 		return 0
@@ -83,16 +130,16 @@ _find_real_shellcheck() {
 
 	# Fast path: check common .real locations before PATH scanning
 	local loc
-	for loc in /opt/homebrew/bin/shellcheck.real /usr/local/bin/shellcheck.real; do
+	for loc in /opt/homebrew/bin/shellcheck.real /usr/local/bin/shellcheck.real /usr/bin/shellcheck.real; do
 		if [[ -x "$loc" ]]; then
 			printf '%s' "$loc"
 			return 0
 		fi
 	done
 
-	# Slow path: search PATH, skipping this wrapper script
-	local self
-	self="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+	# Slow path: search PATH, skipping this wrapper script and any copies of it
+	# Reuse self_resolved computed above (avoids redundant realpath call)
+	local self="$self_resolved"
 
 	local dir
 	while IFS= read -r -d ':' dir || [[ -n "$dir" ]]; do
@@ -100,7 +147,7 @@ _find_real_shellcheck() {
 		if [[ -x "$candidate" ]]; then
 			local resolved
 			resolved="$(realpath "$candidate" 2>/dev/null || readlink -f "$candidate" 2>/dev/null || echo "$candidate")"
-			if [[ "$resolved" != "$self" ]]; then
+			if [[ "$resolved" != "$self" ]] && ! _is_wrapper_copy "$candidate"; then
 				printf '%s' "$candidate"
 				return 0
 			fi
@@ -112,7 +159,7 @@ _find_real_shellcheck() {
 		if [[ -x "$loc" ]]; then
 			local resolved
 			resolved="$(realpath "$loc" 2>/dev/null || readlink -f "$loc" 2>/dev/null || echo "$loc")"
-			if [[ "$resolved" != "$self" ]]; then
+			if [[ "$resolved" != "$self" ]] && ! _is_wrapper_copy "$loc"; then
 				printf '%s' "$loc"
 				return 0
 			fi

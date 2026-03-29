@@ -20,6 +20,10 @@
 #   _compute_struggle_ratio() Compute messages/commits ratio for a worker
 #   _format_duration()        Format seconds into human-readable duration
 #
+# Companion files:
+#   session_tail_query.py     Extracted Python logic for session tail
+#                             classification (GH#6428)
+#
 # Usage: source worker-lifecycle-common.sh
 #
 # Include guard prevents double-loading (readonly errors, function redefinition).
@@ -82,18 +86,14 @@ PY
 }
 
 #######################################
-# Summarise the recent OpenCode transcript tail for a worker session
+# Validate preconditions for session tail evidence collection
 # Arguments:
 #   $1 - worker command line
-#   $2 - recent activity timeout seconds
-#   $3 - maximum parts to inspect (optional, default: 8)
-# Returns: "classification|summary" where classification is one of
-#   active, provider-waiting, stalled, none
+# Outputs: "db_path|session_title" on success, or "none|<reason>" on failure
+# Returns: 0 always (caller checks output prefix)
 #######################################
-_get_session_tail_evidence() {
+_get_session_tail_preconditions() {
 	local cmd="$1"
-	local timeout_seconds="$2"
-	local part_limit="${3:-8}"
 	local db_path session_title
 	db_path=$(_opencode_db_path)
 	session_title=$(_extract_session_title "$cmd")
@@ -108,146 +108,87 @@ _get_session_tail_evidence() {
 		return 0
 	fi
 
+	printf '%s|%s' "$db_path" "$session_title"
+	return 0
+}
+
+#######################################
+# Python script: query OpenCode DB and classify session tail.
+# Reads env vars: SESSION_TAIL_DB_PATH, SESSION_TAIL_TITLE,
+#   SESSION_TAIL_TIMEOUT, SESSION_TAIL_LIMIT
+# Returns: "classification|summary" via stdout
+#
+# Logic extracted to session_tail_query.py for testability and to
+# keep this function under the 100-line complexity threshold (GH#6428).
+#######################################
+_run_session_tail_python() {
+	local script_dir
+	script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	local py_script="${script_dir}/session_tail_query.py"
+
+	if [[ ! -f "$py_script" ]]; then
+		echo "none|session_tail_query.py not found at ${py_script}" >&2
+		printf '%s' "none|session_tail_query.py missing"
+		return 1
+	fi
+
+	python3 "$py_script"
+	return 0
+}
+
+#######################################
+# Set env vars and invoke the session tail Python script
+# Arguments:
+#   $1 - db_path
+#   $2 - session_title
+#   $3 - timeout_seconds
+#   $4 - part_limit
+# Returns: "classification|summary" via stdout
+#######################################
+_query_session_tail() {
+	local db_path="$1"
+	local session_title="$2"
+	local timeout_seconds="$3"
+	local part_limit="$4"
+
 	SESSION_TAIL_DB_PATH="$db_path" \
 		SESSION_TAIL_TITLE="$session_title" \
 		SESSION_TAIL_TIMEOUT="$timeout_seconds" \
 		SESSION_TAIL_LIMIT="$part_limit" \
-		python3 - <<'PY'
-import json
-import os
-import re
-import sqlite3
-import time
+		_run_session_tail_python
+	return 0
+}
 
-db_path = os.environ["SESSION_TAIL_DB_PATH"]
-session_title = os.environ["SESSION_TAIL_TITLE"]
-timeout_seconds = int(os.environ["SESSION_TAIL_TIMEOUT"])
-part_limit = int(os.environ["SESSION_TAIL_LIMIT"])
+#######################################
+# Summarise the recent OpenCode transcript tail for a worker session
+# Arguments:
+#   $1 - worker command line
+#   $2 - recent activity timeout seconds
+#   $3 - maximum parts to inspect (optional, default: 8)
+# Returns: "classification|summary" where classification is one of
+#   active, provider-waiting, stalled, none
+#######################################
+_get_session_tail_evidence() {
+	local cmd="$1"
+	local timeout_seconds="$2"
+	local part_limit="${3:-8}"
 
-provider_markers = (
-    "rate limit",
-    "rate-limit",
-    "429",
-    "backoff",
-    "retrying",
-    "retry after",
-    "overloaded",
-    "temporarily unavailable",
-    "connection reset",
-    "timed out",
-    "timeout",
-    "econnreset",
-    "etimedout",
-    "service unavailable",
-)
+	local preconditions
+	preconditions=$(_get_session_tail_preconditions "$cmd")
 
-def collapse(value: str, limit: int = 120) -> str:
-    value = re.sub(r"\s+", " ", value or "").strip()
-    if len(value) > limit:
-        value = value[: limit - 3] + "..."
-    return value.replace("|", "/")
+	# Early-exit if preconditions returned a "none|..." failure
+	case "$preconditions" in
+	none\|*)
+		printf '%s' "$preconditions"
+		return 0
+		;;
+	esac
 
-try:
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA busy_timeout=5000")
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, title
-        FROM session
-        WHERE title LIKE ?
-        ORDER BY time_created DESC
-        LIMIT 1
-        """,
-        (f"%{session_title}%",),
-    )
-    session_row = cursor.fetchone()
-    if not session_row:
-        print("none|No OpenCode session found")
-        raise SystemExit(0)
+	local db_path session_title
+	db_path="${preconditions%%|*}"
+	session_title="${preconditions#*|}"
 
-    session_id, resolved_title = session_row
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM message
-        WHERE session_id = ?
-          AND (CASE WHEN time_created > 20000000000 THEN time_created / 1000 ELSE time_created END) > strftime('%s', 'now') - ?
-        """,
-        (session_id, timeout_seconds),
-    )
-    recent_count = int(cursor.fetchone()[0] or 0)
-
-    cursor.execute(
-        """
-        SELECT data, time_created
-        FROM part
-        WHERE session_id = ?
-        ORDER BY time_created DESC
-        LIMIT ?
-        """,
-        (session_id, part_limit),
-    )
-    part_rows = list(reversed(cursor.fetchall()))
-except sqlite3.Error as exc:
-    print(f"none|Session evidence query failed: {collapse(str(exc), 120)}")
-    raise SystemExit(0)
-
-entries = []
-search_blob = []
-newest_part_time = 0
-
-for raw_data, part_time in part_rows:
-    newest_part_time = max(newest_part_time, int(part_time or 0))
-    data = json.loads(raw_data)
-    part_type = data.get("type", "unknown")
-
-    if part_type == "text":
-        preview = collapse(data.get("text", ""))
-        if preview:
-            entries.append(f'text:"{preview}"')
-            search_blob.append(preview.lower())
-    elif part_type == "tool":
-        state = data.get("state", {})
-        status = collapse(str(state.get("status", "unknown")), 24)
-        description = collapse(str(state.get("input", {}).get("description", "")))
-        tool_name = collapse(str(data.get("tool", "tool")), 32)
-        if description:
-            entries.append(f'tool:{tool_name}({status}) "{description}"')
-            search_blob.append(description.lower())
-        else:
-            entries.append(f"tool:{tool_name}({status})")
-    elif part_type == "step-finish":
-        reason = collapse(str(data.get("reason", "done")), 32)
-        entries.append(f"step-finish:{reason}")
-    elif part_type == "step-start":
-        entries.append("step-start")
-    elif part_type == "reasoning":
-        entries.append("reasoning")
-    else:
-        entries.append(collapse(part_type, 32))
-
-if not entries:
-    entries.append("no-parts")
-
-joined_blob = " ".join(search_blob)
-if recent_count > 0:
-    classification = "active"
-elif any(marker in joined_blob for marker in provider_markers):
-    classification = "provider-waiting"
-else:
-    classification = "stalled"
-
-age_seconds = max(0, int(time.time()) - newest_part_time) if newest_part_time else -1
-tail_summary = " > ".join(entries[-5:])
-summary = (
-    f'session="{collapse(resolved_title, 80)}"; '
-    f"recent_messages={recent_count}; "
-    f"newest_part_age={age_seconds}s; "
-    f"tail={tail_summary}"
-)
-print(f"{classification}|{summary}")
-PY
+	_query_session_tail "$db_path" "$session_title" "$timeout_seconds" "$part_limit"
 	return 0
 }
 
@@ -695,7 +636,10 @@ _compute_struggle_ratio() {
 		return 0
 	fi
 
-	# Count commits since worker start
+	# Count commits since worker start.
+	# Use process age (elapsed_seconds) as the time window for git log.
+	# This is the most reliable anchor — it measures how long the worker
+	# process has been alive, which is what we want for commit counting.
 	local commits=0
 	if [[ -d "${worktree_dir}/.git" || -f "${worktree_dir}/.git" ]]; then
 		local since_seconds_ago="${elapsed_seconds}"
@@ -704,11 +648,19 @@ _compute_struggle_ratio() {
 		commits=$( (git -C "$worktree_dir" log --oneline --since="${since_seconds_ago} seconds ago" || true) | wc -l | tr -d ' ')
 	fi
 
-	# Estimate message count from OpenCode session DB
+	# Count messages from the session DB (runtime-aware).
+	# Supports both OpenCode (opencode.db) and Claude Code (~/.claude/projects/).
+	# When neither DB is available, return n/a — NEVER fabricate message counts
+	# from elapsed time. The old heuristic (messages = elapsed_minutes × 2)
+	# produced false positives: a 19-minute worker could be reported as "17h
+	# with struggle_ratio: 48" when the process age was inherited from a
+	# long-lived parent or stale worktree. See GH#11278.
 	local messages=0
+	local db_available=false
 	local db_path="${HOME}/.local/share/opencode/opencode.db"
 
 	if [[ -f "$db_path" ]]; then
+		db_available=true
 		local session_id
 		session_id=$(_resolve_session_id_from_cmd "$cmd")
 
@@ -732,11 +684,13 @@ PY
 		fi
 	fi
 
-	# Fallback: estimate from elapsed time if DB query failed
-	# Conservative heuristic: ~2 messages per minute for an active worker
-	if [[ "$messages" -eq 0 && "$elapsed_seconds" -gt 300 ]]; then
-		local elapsed_minutes=$((elapsed_seconds / 60))
-		messages=$((elapsed_minutes * 2))
+	# If no session DB is available (e.g., Claude Code runtime without
+	# OpenCode DB), return n/a. Do NOT fabricate message counts from
+	# elapsed time — that heuristic is the root cause of false struggle
+	# ratio reports (GH#11278).
+	if [[ "$db_available" == "false" ]]; then
+		echo "n/a|${commits}|0|"
+		return 0
 	fi
 
 	# Compute ratio

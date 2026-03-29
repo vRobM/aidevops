@@ -1,0 +1,205 @@
+---
+description: Memory template directory documentation
+mode: subagent
+tools:
+  read: true
+  write: false
+  edit: false
+  bash: true
+  glob: true
+  grep: true
+  webfetch: false
+  task: true
+---
+
+# Memory System
+
+Cross-session memory using SQLite FTS5. **Requires**: `sqlite3` CLI (`brew install sqlite3` / `sudo apt install sqlite3`).
+
+**Motto**: "Compound, then clear" — sessions build on each other.
+
+**Architecture**: SQLite FTS5 over PostgreSQL — no external server, no connection management, FTS5 provides fast full-text search out of the box.
+
+## Slash Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/remember {content}` | Store with AI-assisted categorization |
+| `/recall {query}` | Search by keyword |
+| `/recall --recent` | Show 10 most recent |
+| `/recall --auto-only` | Auto-captured memories only |
+| `/recall --stats` | Memory statistics |
+| `/memory-log` | Recent auto-captured memories |
+
+See `scripts/commands/remember.md` and `scripts/commands/recall.md`.
+
+## Memory Types
+
+| Type | Use For |
+|------|---------|
+| `WORKING_SOLUTION` | Fixes that worked |
+| `FAILED_APPROACH` | What didn't work (avoid repeating) |
+| `CODEBASE_PATTERN` | Project conventions |
+| `USER_PREFERENCE` | Developer preferences |
+| `TOOL_CONFIG` | Tool setup notes |
+| `DECISION` | General project decisions |
+| `CONTEXT` | Background info |
+| `ARCHITECTURAL_DECISION` | System-level architecture choices |
+| `ERROR_FIX` | Bug fixes and patches |
+| `OPEN_THREAD` | Unresolved questions or follow-ups |
+| `SUCCESS_PATTERN` | Approaches that consistently work |
+| `FAILURE_PATTERN` | Approaches that consistently fail |
+
+## Auto-Recall
+
+Surfaces at: interactive session start (last 5, via `conversation-starter.md`), session resume, and runner dispatch (recent + task-specific). Silent if no memories found; namespace-isolated for runners.
+
+## Auto-Capture
+
+Agents store automatically via `--auto` flag. Works with any AI tool that reads AGENTS.md. Privacy filters strip `<private>...</private>` blocks and reject secret patterns (API keys, tokens).
+
+## Relation Types
+
+| Relation | Meaning | Example |
+|----------|---------|---------|
+| `updates` | New info supersedes old | "Favorite color is now green" updates "...is blue" |
+| `extends` | Adds detail, no contradiction | Adding job title to existing employment memory |
+| `derives` | Second-order inference | Inferring "works remotely" from location + job info |
+
+## Dual Timestamps
+
+`created_at` = when stored in DB. `event_date` = when the event actually occurred.
+
+## Deduplication
+
+On store: checks exact and near-duplicates (normalized case/punctuation/whitespace). Increments access count on match instead of creating new entry.
+
+## Auto-Pruning
+
+Runs on every `store` (at most once per 24h). Removes entries older than 90 days with zero access; frequently accessed memories preserved regardless of age.
+
+## Semantic Search (Opt-in)
+
+Providers: `local` (all-MiniLM-L6-v2, 384d, Python 3.9+ sentence-transformers ~90MB) or `openai` (text-embedding-3-small, 1536d, requires API key). Search modes: keyword (default, FTS5 BM25), `--semantic` (vector similarity), `--hybrid` (keyword + semantic via RRF). Hybrid recommended for natural language queries. New memories auto-indexed once configured. See CLI Reference for setup commands.
+
+## Retrieval Feedback Loop
+
+Inspired by [Ori Mnemos](https://github.com/aayoawoyemi/Ori-Mnemos) Q-value system. Tracks whether recalled memories led to downstream actions — proven-useful memories rank higher.
+
+| Signal | Reward | When |
+|--------|--------|------|
+| `cited` | +1.0 | Referenced in new content |
+| `led_to_new` | +0.6 | New memory created after retrieval |
+| `edited` | +0.5 | Memory edited after retrieval |
+| `reused` | +0.4 | Recalled across different queries |
+| `dead_end` | -0.15 (floor: -1.0) | Retrieved but not used |
+
+**Ranking:** FTS5 blended score = `bm25(learnings) - (usefulness_score * 0.3)`. Hybrid (RRF): usefulness added as third signal. Call `feedback` after tasks where recalled memories contributed; pulse supervisor can batch-record from PR merge outcomes.
+
+## Pattern Tracking
+
+Handled by cross-session memory and pulse supervisor outcome observation (Step 2a). Pulse observes success/failure from GitHub PR state (merged vs closed-without-merge) and files improvement issues when patterns emerge. Commands: `/patterns refactor|report|recommend <type>`, `/route "task description"`. Note: `pattern-tracker-helper.sh` archived; pattern data in `memory.db` remains accessible.
+
+## Memory Graduation
+
+Graduate validated local memories (`confidence = "high"` OR `access_count >= 3`) into shared docs. Appends to `.agents/aidevops/graduated-learnings.md`. **Slash command**: `/graduate-memories` or `/graduate-memories --dry-run`. See CLI Reference for commands.
+
+## Memory Audit Pulse
+
+Phase 9 of supervisor pulse cycle (self-throttled to once per 24h). Phases: Dedup → Prune → Graduate → Consolidate → Scan → Report. Commands: `memory-audit-pulse.sh run [--force|--dry-run]`, `memory-audit-pulse.sh status`.
+
+## Memory Consolidation
+
+Haiku-tier LLM call (~$0.001/call) scans unconsolidated memories, discovers cross-cutting connections, stores synthesized insights. Inspired by Google's [always-on-memory-agent](https://github.com/GoogleCloudPlatform/generative-ai/tree/main/gemini/agents/always-on-memory-agent). Insights in `memory_consolidations`; connections as `derives` relations in `learning_relations`. Skips gracefully if `ai-research-helper.sh` or API key unavailable. Manual: `memory-helper.sh insights [--dry-run]`. Daily cron: `0 4 * * * ~/.aidevops/agents/scripts/memory-audit-pulse.sh run --quiet`.
+
+## Entity Memory System
+
+Tracks relationships with people, agents, and services across communication channels. Enables relationship continuity across session resets and context compaction.
+
+**Architecture:** Three-layer design sharing `memory.db`. Full details: `reference/entity-memory-architecture.md`.
+
+| Layer | Purpose | Script | Tables |
+|-------|---------|--------|--------|
+| Layer 0 | Raw interaction log (immutable, append-only) | `entity-helper.sh` | `interactions`, `interactions_fts` |
+| Layer 1 | Per-conversation context (tactical summaries) | `conversation-helper.sh` | `conversations`, `conversation_summaries` |
+| Layer 2 | Entity relationship model (strategic profiles) | `entity-helper.sh` | `entities`, `entity_channels`, `entity_profiles`, `capability_gaps` |
+| Loop | Self-evolution (gap detection → TODO → upgrade) | `self-evolution-helper.sh` | `capability_gaps`, `gap_evidence` |
+
+**Key concepts:** Entities are people/agents/services. Cross-channel identity links Matrix/SimpleX/email/CLI to the same entity (confidence: confirmed/suggested/inferred). Profiles versioned via `supersedes_id` chain — never updated in place. Layer 0 is append-only; all other layers derived from it.
+
+## Namespaces (Per-Runner Isolation)
+
+Use `--namespace <name>` with any `memory-helper.sh` command for per-runner isolation. Add `--shared` to also search global. `memory-helper.sh namespaces` lists all. Namespace DBs: `memory/namespaces/<name>/memory.db`. Global DB: `memory/memory.db`.
+
+## Storage Location
+
+`~/.aidevops/.agent-workspace/memory/`: `memory.db` (global SQLite FTS5 — tables: learnings, learning_access, learning_relations, entities, entity_channels, entity_profiles, interactions, interactions_fts, conversations, conversation_summaries, capability_gaps, gap_evidence, memory_consolidations (t1413)), `embeddings.db` (optional vectors), `namespaces/` (per-runner), `preferences/` (optional markdown).
+
+## CLI Reference
+
+```bash
+# Store
+memory-helper.sh store --type "WORKING_SOLUTION" --content "Fixed CORS with nginx headers" --tags "cors,nginx"
+memory-helper.sh store --content "Deployed v2.0" --event-date "2024-01-15T10:00:00Z"
+memory-helper.sh store --content "New info" --supersedes mem_xxx --relation updates
+
+# Recall
+memory-helper.sh recall "cors"
+memory-helper.sh recall --recent
+memory-helper.sh recall "query" --type WORKING_SOLUTION --project myapp --limit 20
+memory-helper.sh recall "query" --semantic   # Vector search
+memory-helper.sh recall "query" --hybrid     # FTS5 + semantic (RRF)
+memory-helper.sh recall "query" --auto-only  # Auto-captured only
+memory-helper.sh recall "query" --manual-only
+
+# Feedback
+memory-helper.sh feedback mem_xxx --signal cited
+memory-helper.sh feedback mem_xxx --signal dead_end
+memory-helper.sh feedback mem_xxx --value 0.8   # Custom reward
+
+# Version history
+memory-helper.sh history mem_xxx   # Ancestors and descendants
+memory-helper.sh latest mem_xxx    # Latest in chain
+
+# Maintenance
+memory-helper.sh stats
+memory-helper.sh validate
+memory-helper.sh dedup --dry-run && memory-helper.sh dedup
+memory-helper.sh dedup --exact-only
+memory-helper.sh prune --older-than-days 60 --dry-run
+memory-helper.sh prune --older-than-days 60
+memory-helper.sh prune --older-than-days 180 --include-accessed
+memory-helper.sh log   # Recent auto-captures
+
+# Export
+memory-helper.sh export --format json
+memory-helper.sh export --format toon
+
+# Entity operations
+entity-helper.sh create --name "Marcus" --type person --channel matrix --channel-id "@marcus:server.com"
+entity-helper.sh link ent_xxx --channel email --channel-id "marcus@example.com" --verified
+entity-helper.sh log-interaction ent_xxx --channel matrix --content "How's the deployment going?"
+conversation-helper.sh create --entity ent_xxx --channel matrix --channel-id "!room:server" --topic "Deployment"
+conversation-helper.sh context conv_xxx --recent-messages 10
+self-evolution-helper.sh pulse-scan --auto-todo-threshold 3
+
+# Graduation
+memory-graduate-helper.sh candidates
+memory-graduate-helper.sh graduate --dry-run
+memory-graduate-helper.sh graduate
+
+# Embeddings
+memory-embeddings-helper.sh setup --provider local
+memory-embeddings-helper.sh index
+memory-embeddings-helper.sh status
+```
+
+## Developer Preferences
+
+Structured preference files at `~/.aidevops/.agent-workspace/memory/preferences/`: `coding-style.md`, `documentation.md`, `workflow.md`, `tools.md`, `project-specific/{project}.md`. Check before starting work; update on feedback; check project-specific files when switching projects.
+
+## Security
+
+- Never store credentials or API keys — use configuration references; keep secrets in `~/.config/aidevops/credentials.sh`
+- No PII in shareable templates; regular cleanup of outdated information
+- **This directory is version controlled** — keep it clean; use `~/.aidevops/.agent-workspace/memory/` for all actual operations

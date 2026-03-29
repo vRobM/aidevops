@@ -29,7 +29,7 @@ Cross-session SQLite FTS5 memory. Commands: `/remember {content}`, `/recall {que
 
 Auto-recall is silent (no output if no memories found) and uses namespace isolation for runners.
 
-**Full docs**: `memory/README.md`
+**Full docs**: `reference/memory.md`
 
 **Proactive memory**: When you detect solutions, preferences, workarounds, failed approaches, or decisions — proactively suggest `/remember {description}`. Use `memory-helper.sh store --auto` for auto-captured memories. Privacy: `<private>` blocks stripped, secrets rejected.
 
@@ -107,6 +107,36 @@ Persistent user preferences are stored in `~/.config/aidevops/settings.json`. Th
 **Priority**: environment variable > settings.json > default (`true`).
 
 **Shell access**: Scripts that source `shared-constants.sh` can read settings via `get_setting "key" "default"`.
+
+## Contribution Watch
+
+Monitors external issues/PRs for new activity needing reply, using the GitHub Notifications API. Managed repos (`pulse: true` in repos.json) are excluded to suppress internal automation noise.
+
+**CLI**: `contribution-watch-helper.sh seed|scan|status|install|uninstall`
+
+- `seed` — seed tracked threads from existing contributed repos
+- `scan` — check for new activity on tracked threads (optional `--backfill` for low-frequency safety-net sweeps)
+- `install` / `uninstall` — install/remove the scheduled scanner
+
+**Security**: Automated scans are deterministic metadata checks (no LLM). Comment bodies are only shown in interactive sessions after `prompt-guard-helper.sh scan`.
+
+## FOSS Contributions
+
+Manages FOSS contribution targets with per-repo etiquette controls and a global daily token budget. Enforces rate limits and blocklists before dispatching contribution workers.
+
+**CLI**: `foss-contribution-helper.sh scan|check|budget|record|reset|status`
+
+- `scan [--dry-run]` — list eligible FOSS repos (respects `labels_filter`, skips `blocklist: true`)
+- `check <slug> [tokens]` — gate check before contributing (budget + rate limit + blocklist)
+- `budget` — show daily token usage vs ceiling
+- `record <slug> <tokens>` — record token usage after a contribution attempt
+- `status` — show all FOSS repos and their config
+
+**Config**: `config.jsonc` `foss` section — `enabled`, `max_daily_tokens`, `max_concurrent_contributions`.
+
+**repos.json fields**: `foss: true`, `app_type`, `foss_config` (see `reference/foss-contributions.md`).
+
+**Full docs**: `reference/foss-contributions.md`
 
 ## Auto-Update
 

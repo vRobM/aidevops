@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from "child_process";
+import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 
@@ -10,35 +10,6 @@ import { join } from "path";
  */
 function shellEscape(str) {
   return "'" + String(str).replace(/'/g, "'\\''") + "'";
-}
-
-/**
- * Create a memory tool (recall or store) using a shared factory pattern.
- * Deduplicates the near-identical memory_recall and memory_store definitions.
- *
- * @param {object} opts
- * @param {string} opts.scriptsDir - Path to scripts directory
- * @param {function} opts.run - Shell command runner
- * @param {string} opts.action - "recall" or "store"
- * @param {string} opts.description - Tool description
- * @param {function} opts.buildArgs - (args, helperPath) => { cmd: string, timeout: number }
- * @returns {object} Tool definition with description and execute method
- */
-function createMemoryTool({ scriptsDir, run, action, description, buildArgs }) {
-  return {
-    description,
-    async execute(args) {
-      const memoryHelper = join(scriptsDir, "memory-helper.sh");
-      if (!existsSync(memoryHelper)) {
-        return "Memory system not available (memory-helper.sh not found)";
-      }
-      const { cmd, timeout } = buildArgs(args, memoryHelper);
-      const result = run(cmd, timeout);
-      return result || (action === "recall"
-        ? "No memories found for this query."
-        : "Memory stored successfully.");
-    },
-  };
 }
 
 /**
@@ -70,6 +41,56 @@ function createAidevopsTool(run) {
       const cmd = `aidevops ${rawCmd}`;
       const result = run(cmd, 15000);
       return result || `Command completed: ${cmd}`;
+    },
+  };
+}
+
+/**
+ * Create the unified memory tool (recall and store in one tool).
+ *
+ * Consolidates the former aidevops_memory_recall and aidevops_memory_store tools.
+ * Both operations share the same helper script and execution pattern — a single
+ * tool with an action discriminator is cleaner for the LLM and reduces tool count.
+ *
+ * @param {string} scriptsDir - Path to scripts directory
+ * @param {function} run - Shell command runner
+ * @returns {object} Tool definition
+ */
+function createMemoryTool(scriptsDir, run) {
+  return {
+    description:
+      'Recall or store memories in the aidevops cross-session memory system. ' +
+      'Args: action ("recall"|"store"), query (string, for recall), ' +
+      'limit (string, default "5", for recall), ' +
+      'content (string, for store), confidence ("low"|"medium"|"high", default "medium", for store)',
+    async execute(args) {
+      const memoryHelper = join(scriptsDir, "memory-helper.sh");
+      if (!existsSync(memoryHelper)) {
+        return "Memory system not available (memory-helper.sh not found)";
+      }
+
+      const action = String(args.action || "recall");
+
+      if (action === "recall") {
+        const query = args.query || "";
+        const limit = args.limit || "5";
+        const cmd = `bash "${memoryHelper}" recall ${shellEscape(query)} --limit ${shellEscape(limit)}`;
+        const result = run(cmd, 10000);
+        return result || "No memories found for this query.";
+      }
+
+      if (action === "store") {
+        const content = typeof args.content === "string" ? args.content.trim() : "";
+        if (!content) {
+          return "Error: content is required to store a memory";
+        }
+        const confidence = args.confidence || "medium";
+        const cmd = `bash "${memoryHelper}" store ${shellEscape(content)} --confidence ${shellEscape(confidence)}`;
+        const result = run(cmd, 10000);
+        return result || "Memory stored successfully.";
+      }
+
+      return `Unknown action: ${action}. Use "recall" or "store".`;
     },
   };
 }
@@ -114,186 +135,22 @@ function createPreEditCheckTool(scriptsDir) {
 }
 
 /**
- * Run the full pre-commit pipeline via the hook script.
- * @param {string} scriptsDir
- * @returns {string}
- */
-function runPreCommitPipeline(scriptsDir) {
-  const hookScript = join(scriptsDir, "pre-commit-hook.sh");
-  if (!existsSync(hookScript)) {
-    return "pre-commit-hook.sh not found — run aidevops update";
-  }
-  try {
-    const result = execSync(`bash "${hookScript}"`, {
-      encoding: "utf-8",
-      timeout: 30000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return `Pre-commit quality checks PASSED:\n${result.trim()}`;
-  } catch (err) {
-    const cmdOutput = (err.stdout || "") + (err.stderr || "");
-    return `Pre-commit quality checks FAILED:\n${cmdOutput.trim()}`;
-  }
-}
-
-/**
- * Format a quality pipeline result into a user-friendly string.
- * @param {string} label
- * @param {{ totalViolations: number, report: string }} result
- * @returns {string}
- */
-function formatQualityResult(label, result) {
-  return result.totalViolations > 0
-    ? `${label}: ${result.totalViolations} issue(s) found:\n${result.report}`
-    : `${label}: all checks passed.`;
-}
-
-/**
- * Create the quality check tool.
- * @param {string} scriptsDir - Path to scripts directory
- * @param {object} pipelines - { runShellQualityPipeline, runMarkdownQualityPipeline, scanForSecrets }
- * @returns {object} Tool definition
- */
-function createQualityCheckTool(scriptsDir, pipelines) {
-  const { runShellQualityPipeline, runMarkdownQualityPipeline, scanForSecrets } = pipelines;
-
-  return {
-    description:
-      'Run quality checks on a file or the full pre-commit pipeline. Args: file (string, path to check) OR command "pre-commit" to run full pipeline on staged files',
-    async execute(args) {
-      const file = args.file || args.command || args;
-
-      if (file === "pre-commit" || file === "staged") {
-        return runPreCommitPipeline(scriptsDir);
-      }
-
-      if (typeof file === "string" && file.endsWith(".sh")) {
-        return formatQualityResult("Quality check", runShellQualityPipeline(file));
-      }
-
-      if (typeof file === "string" && file.endsWith(".md")) {
-        return formatQualityResult("Markdown check", runMarkdownQualityPipeline(file));
-      }
-
-      if (typeof file === "string" && existsSync(file)) {
-        const secretResult = scanForSecrets(file);
-        return secretResult.violations > 0
-          ? `Secrets scan: ${secretResult.violations} potential issue(s):\n${secretResult.details.join("\n")}`
-          : "Secrets scan: no issues found.";
-      }
-
-      return `Usage: pass a file path (.sh or .md) or "pre-commit" for full pipeline`;
-    },
-  };
-}
-
-/**
- * Sanitize a hook action string into a known-safe literal.
- * Uses a switch statement so static taint analyzers (Codacy/Semgrep) can
- * prove the returned value is a constant — completely severing the data flow
- * from the function parameter to the shell command. Object-property lookups
- * and Array.find() do not satisfy Semgrep's taint tracking because the
- * analyzer cannot prove the returned value is independent of the input.
- * @param {string} action - Raw action string from caller
- * @returns {string|undefined} Sanitized action literal, or undefined if invalid
- */
-function sanitizeHookAction(action) {
-  switch (String(action)) {
-    case "install": return "install";
-    case "uninstall": return "uninstall";
-    case "status": return "status";
-    case "test": return "test";
-    default: return undefined;
-  }
-}
-
-/** Valid hook actions for display in error messages. */
-const VALID_HOOK_ACTIONS = ["install", "uninstall", "status", "test"];
-
-/**
- * Run the install-hooks-helper.sh script.
- * Uses execFileSync with argument array instead of execSync with string
- * interpolation — eliminates shell interpretation entirely, which is both
- * more secure and satisfies static taint analyzers (Codacy/Semgrep) that
- * flag parameter-to-child_process data flows in execSync template strings.
- * @param {string} helperScript - Path to the helper script
- * @param {string} action - Hook action to run
- * @returns {string}
- */
-function runHookHelper(helperScript, action) {
-  const validAction = sanitizeHookAction(action);
-  if (!validAction) {
-    return `Invalid action: ${String(action)}. Valid actions: ${VALID_HOOK_ACTIONS.join(", ")}`;
-  }
-  try {
-    const result = execFileSync("bash", [helperScript, validAction], {
-      encoding: "utf-8",
-      timeout: 15000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return result.trim();
-  } catch (err) {
-    const cmdOutput = (err.stdout || "") + (err.stderr || "");
-    return `Hook ${validAction} failed:\n${cmdOutput.trim()}`;
-  }
-}
-
-/**
- * Fallback: install git pre-commit hook directly when helper script is missing.
- * @param {string} scriptsDir
- * @param {function} run - Shell command runner
- * @returns {string}
- */
-function installGitHookFallback(scriptsDir, run) {
-  const preCommitHook = join(scriptsDir, "pre-commit-hook.sh");
-  if (!existsSync(preCommitHook)) {
-    return "pre-commit-hook.sh not found — run aidevops update";
-  }
-  const gitHookDir = run("git rev-parse --git-dir 2>/dev/null");
-  if (!gitHookDir) {
-    return "Not in a git repository — cannot install pre-commit hook";
-  }
-  const hookDest = join(gitHookDir, "hooks", "pre-commit");
-  try {
-    execSync(`cp "${preCommitHook}" "${hookDest}" && chmod +x "${hookDest}"`, {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    return `Git pre-commit hook installed at ${hookDest}`;
-  } catch (err) {
-    return `Failed to install hook: ${err.message}`;
-  }
-}
-
-/**
- * Create the install hooks tool.
- * @param {string} scriptsDir - Path to scripts directory
- * @param {function} run - Shell command runner
- * @returns {object} Tool definition
- */
-function createInstallHooksTool(scriptsDir, run) {
-  return {
-    description:
-      'Install or manage git pre-commit quality hooks. Args: action (string: "install", "uninstall", "status", "test")',
-    async execute(args) {
-      const action = args.action || args || "install";
-      const helperScript = join(scriptsDir, "install-hooks-helper.sh");
-
-      if (existsSync(helperScript)) {
-        return runHookHelper(helperScript, action);
-      }
-
-      if (action === "install") {
-        return installGitHookFallback(scriptsDir, run);
-      }
-
-      return `install-hooks-helper.sh not found. Available actions: install, uninstall, status, test`;
-    },
-  };
-}
-
-/**
  * Create all tool definitions for the plugin.
+ *
+ * Tools (4 total):
+ *   - aidevops              — aidevops CLI runner
+ *   - aidevops_memory       — unified recall/store (merged from former recall + store pair)
+ *   - aidevops_pre_edit_check — git safety check before file edits
+ *   - model-accounts-pool   — OAuth account pool management (added in index.mjs)
+ *
+ * NOTE: aidevops_quality_check was removed. Quality checks run automatically
+ * via the tool.execute.before hook on every Write/Edit operation — an explicit
+ * LLM-callable tool is redundant and adds unnecessary context overhead.
+ *
+ * NOTE: aidevops_install_hooks was removed. Hook installation is a one-time
+ * setup operation best done via Bash: `bash ~/.aidevops/agents/scripts/install-hooks-helper.sh install`
+ * or `aidevops security posture`. A dedicated plugin tool adds ~90 lines of
+ * code for a task the LLM can perform directly via the Bash tool.
  *
  * NOTE: opencode 1.1.56+ uses Zod v4 to validate tool args schemas.
  * Plain `{ type: "string" }` objects are NOT valid Zod schemas and cause:
@@ -303,49 +160,12 @@ function createInstallHooksTool(scriptsDir, run) {
  *
  * @param {string} scriptsDir - Path to scripts directory
  * @param {function} run - Shell command runner
- * @param {object} pipelines - Quality pipeline functions
- * @param {function} pipelines.runShellQualityPipeline
- * @param {function} pipelines.runMarkdownQualityPipeline
- * @param {function} pipelines.scanForSecrets
  * @returns {Record<string, object>}
  */
-export function createTools(scriptsDir, run, pipelines) {
+export function createTools(scriptsDir, run) {
   return {
     aidevops: createAidevopsTool(run),
-
-    aidevops_memory_recall: createMemoryTool({
-      scriptsDir,
-      run,
-      action: "recall",
-      description:
-        'Recall memories from the aidevops cross-session memory system. Args: query (string), limit (string, default "5")',
-      buildArgs: (args, helper) => ({
-        cmd: `bash "${helper}" recall ${shellEscape(args.query)} --limit ${shellEscape(args.limit || "5")}`,
-        timeout: 10000,
-      }),
-    }),
-
-    aidevops_memory_store: createMemoryTool({
-      scriptsDir,
-      run,
-      action: "store",
-      description:
-        'Store a new memory in the aidevops cross-session memory. Args: content (string), confidence (string: low/medium/high, default "medium")',
-      buildArgs: (args, helper) => {
-        const content = typeof args.content === "string" ? args.content.trim() : "";
-        if (!content) {
-          return { cmd: `echo "Error: content is required to store a memory" >&2; exit 1`, timeout: 1000 };
-        }
-        const confidence = args.confidence || "medium";
-        return {
-          cmd: `bash "${helper}" store ${shellEscape(content)} --confidence ${shellEscape(confidence)}`,
-          timeout: 10000,
-        };
-      },
-    }),
-
+    aidevops_memory: createMemoryTool(scriptsDir, run),
     aidevops_pre_edit_check: createPreEditCheckTool(scriptsDir),
-    aidevops_quality_check: createQualityCheckTool(scriptsDir, pipelines),
-    aidevops_install_hooks: createInstallHooksTool(scriptsDir, run),
   };
 }
