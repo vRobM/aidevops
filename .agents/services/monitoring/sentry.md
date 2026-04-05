@@ -14,57 +14,36 @@ mcp:
   - sentry
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Sentry MCP
 
 <!-- AI-CONTEXT-START -->
 
 ## Quick Reference
 
-- **Purpose**: Error monitoring, debugging, and issue tracking via Sentry
+- **Purpose**: Production error debugging, trend analysis, stack trace investigation, release health
 - **MCP**: Local stdio mode with `@sentry/mcp-server`
-- **Auth**: Personal Auth Token (created after org exists)
+- **Auth**: Personal Auth Token (created **after** org exists — earlier tokens may not inherit org access)
 - **Credentials**: `~/.config/aidevops/credentials.sh` → `SENTRY_YOURNAME`
-
-**When to use**:
-
-- Debugging production errors
-- Analyzing error trends and patterns
-- Investigating specific issues or stack traces
-- Checking release health and performance
+- **MCP tools**: `list_projects` · `get_issue` · `list_issues` · `get_event` · `resolve_issue` · `assign_issue`
+- **Use instead**: LLM traces/evals → `services/monitoring/langwatch.md`; dependency security → `services/monitoring/socket.md`
 
 <!-- AI-CONTEXT-END -->
 
 ## MCP Setup
 
-### 1. Create Sentry Account & Organization
-
-1. Sign up at [sentry.io](https://sentry.io)
-2. **Create an organization first** (Settings → Organizations → Create)
-3. Create a project within the organization
-
-### 2. Generate Personal Auth Token
-
-**Important**: Create the token AFTER creating the organization. Tokens created before the org don't inherit access.
-
-1. Go to Settings → Account → Personal Tokens
-2. Click "Create New Token"
-3. Select permissions:
-   - `alerts:read`, `alerts:write`
-   - `event:admin`, `event:read`, `event:write`
-   - `member:read`, `org:read`
-   - `project:read`, `project:releases`
-   - `team:read`
-
-4. Save token:
+1. Sign up at [sentry.io](https://sentry.io), create an org (`Settings → Organizations → Create`), then a project.
+2. Generate a **personal** auth token (`Settings → Account → Personal Tokens → Create New Token`). Required scopes: `alerts:read`, `alerts:write`, `event:admin`, `event:read`, `event:write`, `member:read`, `org:read`, `project:read`, `project:releases`, `team:read`
+3. Save the token:
 
 ```bash
 echo 'export SENTRY_YOURNAME="sntryu_..."' >> ~/.config/aidevops/credentials.sh
 chmod 600 ~/.config/aidevops/credentials.sh
 ```
 
-### 3. Configure OpenCode MCP
-
-`~/.config/opencode/opencode.json` should contain an `mcpServers` object similar to:
+4. Configure MCP in `~/.config/opencode/opencode.json` or equivalent:
 
 ```json
 {
@@ -78,33 +57,12 @@ chmod 600 ~/.config/aidevops/credentials.sh
 }
 ```
 
-```bash
-source ~/.config/aidevops/credentials.sh
-tmp_json="$(mktemp)"
-jq --arg token "$SENTRY_YOURNAME" \
-  '.mcpServers.sentry = {"command": "npx", "args": ["@sentry/mcp-server@latest", "--access-token", $token], "enabled": true}' \
-  ~/.config/opencode/opencode.json > "$tmp_json" && mv "$tmp_json" ~/.config/opencode/opencode.json
-```
-
-`~/.config/opencode/opencode.json` is local machine config and should never be committed.
-
-### 4. Test Connection
+5. Test:
 
 ```bash
 source ~/.config/aidevops/credentials.sh
 curl -s -H "Authorization: Bearer $SENTRY_YOURNAME" "https://sentry.io/api/0/organizations/" | jq '.[].slug'
 ```
-
-## Available MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `list_projects` | List all Sentry projects |
-| `get_issue` | Get details of a specific issue |
-| `list_issues` | List issues for a project |
-| `get_event` | Get details of a specific event |
-| `resolve_issue` | Mark an issue as resolved |
-| `assign_issue` | Assign issue to a team member |
 
 ## Usage Examples
 
@@ -117,36 +75,19 @@ curl -s -H "Authorization: Bearer $SENTRY_YOURNAME" "https://sentry.io/api/0/org
 
 ## SDK Integration
 
-For integrating Sentry into your app, use the wizard:
-
 ```bash
-npx @sentry/wizard@latest -i nextjs  # Next.js
-npx @sentry/wizard@latest -i node    # Node.js
-npx @sentry/wizard@latest -i react   # React
+npx @sentry/wizard@latest -i nextjs   # also: node, react
 ```
 
-The wizard creates all required config files. See [Sentry Docs](https://docs.sentry.io/) for platform-specific guides.
-
-If you manually configure SDK options, keep `sendDefaultPii` disabled unless you explicitly need user/IP metadata and have privacy coverage for it.
+Keep `sendDefaultPii` disabled unless you explicitly need user/IP metadata and have privacy coverage. See [Sentry Docs](https://docs.sentry.io/) for platform-specific guides.
 
 ## Troubleshooting
 
-### Token returns empty organizations
-
-Create a new Personal Auth Token **after** the organization exists. Tokens created before the org don't inherit access.
-
-### "Not authenticated"
-
-1. Verify key exists: `source ~/.config/aidevops/credentials.sh && printenv | cut -d= -f1 | grep '^SENTRY_YOURNAME$'`
-2. Test API: `curl -H "Authorization: Bearer $SENTRY_YOURNAME" https://sentry.io/api/0/`
-3. Restart OpenCode after config changes
-
-### Org token vs Personal token
-
-- **Org tokens** (`org:ci` scope) - Limited, for CI/CD only
-- **Personal tokens** - Full access, use these for MCP
+- **Empty organizations**: token created before org existed — generate a new one after org creation.
+- **`Not authenticated`**: verify (`source ~/.config/aidevops/credentials.sh && printenv | grep '^SENTRY_YOURNAME$'`), test API (`curl -H "Authorization: Bearer $SENTRY_YOURNAME" https://sentry.io/api/0/`), restart runtime.
+- **Wrong token type**: org tokens (`org:ci`) are for CI/CD; MCP needs a personal token.
 
 ## Related
 
-- [Sentry Documentation](https://docs.sentry.io/)
-- [Sentry MCP](https://mcp.sentry.dev/)
+- [Sentry Documentation](https://docs.sentry.io/) · [Sentry MCP](https://mcp.sentry.dev/)
+- `services/monitoring/langwatch.md` · `services/monitoring/socket.md`

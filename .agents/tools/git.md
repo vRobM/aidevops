@@ -12,196 +12,71 @@ tools:
   task: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Git Tools
 
 <!-- AI-CONTEXT-START -->
 
 ## Quick Reference
 
-- **Platforms**: GitHub, GitLab, Gitea
-- **CLIs**: `gh` (GitHub), `glab` (GitLab), `tea` (Gitea)
-- **Branching**: See `workflows/branch.md`
+| Platform | CLI | Install | Auth | Primary doc |
+|----------|-----|---------|------|-------------|
+| GitHub | `gh` | `brew install gh` | `gh auth login` | `git/github-cli.md` |
+| GitLab | `glab` | `brew install glab` | `glab auth login` | `git/gitlab-cli.md` |
+| Gitea | `tea` | `brew install tea` | `tea login add` | `git/gitea-cli.md` |
 
-| Platform | CLI | Install | Auth |
-|----------|-----|---------|------|
-| GitHub | `gh` | `brew install gh` | `gh auth login` |
-| GitLab | `glab` | `brew install glab` | `glab auth login` |
-| Gitea | `tea` | `brew install tea` | `tea login add` |
+- Branching: `workflows/branch.md`
+- PRs and releases: `workflows/pr.md`, `workflows/version-bump.md`, `workflows/release.md`
+- Security and auth: `git/authentication.md`, `git/git-security.md`
+- Automation: `git/github-actions.md`, `git/opencode-github.md`, `git/opencode-gitlab.md`, `git/opencode-github-security.md`
 
-**Subagents**:
-- `git/github-cli.md` - GitHub CLI details
-- `git/gitlab-cli.md` - GitLab CLI details
-- `git/gitea-cli.md` - Gitea CLI details
-- `git/github-actions.md` - CI/CD workflows
-- `git/authentication.md` - Token setup
-- `git/git-security.md` - Security practices
-- `git/opencode-github.md` - OpenCode GitHub App integration
-- `git/opencode-gitlab.md` - OpenCode GitLab CI integration
+## Common Operations
 
-<!-- AI-CONTEXT-END -->
-
-## Overview
-
-Use official CLI tools for each Git platform. They handle authentication securely via system keyring and are actively maintained.
-
-## Platform CLIs
-
-### GitHub (`gh`)
-
-The official GitHub CLI. See `git/github-cli.md` for details.
-
-```bash
-brew install gh
-gh auth login
-gh repo list
-gh pr create
-gh release create v1.0.0 --generate-notes
-```
-
-### GitLab (`glab`)
-
-The official GitLab CLI. See `git/gitlab-cli.md` for details.
-
-```bash
-brew install glab
-glab auth login
-glab repo list
-glab mr create
-glab release create v1.0.0
-```
-
-### Gitea (`tea`)
-
-The official Gitea CLI. See `git/gitea-cli.md` for details.
-
-```bash
-brew install tea
-tea login add
-tea repos list
-tea pulls create
-tea releases create v1.0.0
-```
-
-## Multi-Platform Setup
-
-For repositories mirrored across platforms:
-
-```bash
-# Add multiple remotes
-git remote add github git@github.com:user/repo.git
-git remote add gitlab git@gitlab.com:user/repo.git
-
-# Push to specific remote
-git push github main
-git push gitlab main
-
-# Or create combined remote
-git remote add all git@github.com:user/repo.git
-git remote set-url --add --push all git@github.com:user/repo.git
-git remote set-url --add --push all git@gitlab.com:user/repo.git
-git push all main
-```
+| Operation | GitHub (`gh`) | GitLab (`glab`) | Gitea (`tea`) |
+|-----------|---------------|-----------------|---------------|
+| Create repo | `gh repo create my-repo --public` | `glab repo create my-repo --public` | — |
+| Clone | `gh repo clone owner/repo` | `glab repo clone owner/repo` | — |
+| Fork | `gh repo fork owner/repo` | — | — |
+| Create PR/MR | `gh pr create --fill` | `glab mr create --fill` | `tea pulls create` |
+| List PRs/MRs | `gh pr list` | `glab mr list` | — |
+| Merge | `gh pr merge 123 --squash` | `glab mr merge 123 --squash` | — |
+| Create release | `gh release create v1.0.0 --generate-notes` | `glab release create v1.0.0 --notes "Notes"` | `tea releases create v1.0.0` |
+| List releases | `gh release list` | `glab release list` | — |
 
 ## Authentication
 
-**Recommended**: Use CLI authentication (stores in keyring)
-
-```bash
-gh auth login    # GitHub
-glab auth login  # GitLab
-tea login add    # Gitea
-```
-
-**For scripts** that need tokens:
+Export tokens only when scripts require them (prefer system keyring):
 
 ```bash
 export GITHUB_TOKEN=$(gh auth token)
 export GITLAB_TOKEN=$(glab auth token)
 ```
 
-See `git/authentication.md` for detailed token setup.
+Token setup and safety rules: `git/authentication.md`.
 
-## Common Operations
-
-### Repository Management
+## Multi-Platform Remotes
 
 ```bash
-# Create
-gh repo create my-repo --public
-glab repo create my-repo --public
+# Push to individual remotes
+git remote add github git@github.com:user/repo.git
+git remote add gitlab git@gitlab.com:user/repo.git
+git push github main && git push gitlab main
 
-# Clone
-gh repo clone owner/repo
-glab repo clone owner/repo
-
-# Fork
-gh repo fork owner/repo
-```
-
-### Pull/Merge Requests
-
-```bash
-# Create PR/MR
-gh pr create --fill
-glab mr create --fill
-
-# List
-gh pr list
-glab mr list
-
-# Merge
-gh pr merge 123 --squash
-glab mr merge 123 --squash
-```
-
-### Releases
-
-```bash
-# Create with auto-generated notes
-gh release create v1.0.0 --generate-notes
-glab release create v1.0.0 --notes "Release notes"
-
-# List
-gh release list
-glab release list
+# Push to all remotes at once
+git remote add all git@github.com:user/repo.git
+git remote set-url --add --push all git@gitlab.com:user/repo.git
+git push all main
 ```
 
 ## OpenCode Integration
 
-Enable AI-powered issue/PR automation directly from GitHub or GitLab.
-
-### GitHub
-
 ```bash
-# Check setup status
 ~/.aidevops/agents/scripts/opencode-github-setup-helper.sh check
-
-# Automated setup
 opencode github install
 ```
 
-Then use `/oc` or `/opencode` in any issue/PR comment:
-- `/oc explain this issue`
-- `/oc fix this bug`
-- `/opencode review this PR`
+Full workflow and hardening: `git/opencode-github.md`, `git/opencode-gitlab.md`, `git/opencode-github-security.md`.
 
-See `git/opencode-github.md` for full details.
-
-### GitLab
-
-Add OpenCode to your `.gitlab-ci.yml` and use `@opencode` in comments:
-- `@opencode explain this issue`
-- `@opencode fix this`
-
-See `git/opencode-gitlab.md` for full details.
-
-## Related
-
-- **Branching workflows**: `workflows/branch.md`
-- **Pull requests**: `workflows/pr.md`
-- **Version management**: `workflows/version-bump.md`
-- **Releases**: `workflows/release.md`
-- **CI/CD**: `git/github-actions.md`
-- **Security**: `git/git-security.md`
-- **OpenCode GitHub**: `git/opencode-github.md`
-- **OpenCode GitLab**: `git/opencode-gitlab.md`
+<!-- AI-CONTEXT-END -->

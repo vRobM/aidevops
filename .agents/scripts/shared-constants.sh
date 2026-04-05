@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2034,SC2089,SC2090
 
 # Shared Constants for AI DevOps Framework Provider Scripts
@@ -214,20 +216,35 @@ timeout_sec() {
 		gtimeout "$secs" "$@"
 		return $?
 	else
-		# macOS fallback: background the command and kill after deadline.
-		# The perl alarm approach (perl -e 'alarm shift; exec @ARGV') is fragile:
-		# SIGALRM may not kill child processes that trap or ignore signals (e.g.,
-		# Node MCP servers). Using background + kill is more reliable.
+		# macOS fallback: background the command in a new process group and kill
+		# the entire group after the deadline. Using set -m puts each background
+		# job in its own process group (PGID == child PID), so kill -- -PGID
+		# terminates the child and all its descendants — not just the direct child.
+		#
+		# GH#5530: the previous implementation used kill "$cmd_pid" which only
+		# killed the direct child. Wrapper processes (e.g., bash sandbox-exec-helper.sh)
+		# survived because they are parents of the killed process, not children.
+		#
+		# Save whether monitor mode was already active before enabling it, so we
+		# can restore the original shell state rather than unconditionally disabling it.
+		local monitor_was_enabled=false
+		[[ $- == *m* ]] && monitor_was_enabled=true
+		set -m
 		"$@" &
 		local cmd_pid=$!
+		# Restore monitor mode to its original state (set -m or set +m as appropriate)
+		$monitor_was_enabled && set -m || set +m
+		# PGID equals the PID of the process group leader (the background job)
+		local cmd_pgid="$cmd_pid"
 		# Poll every 0.5s; count half-seconds to avoid floating-point math
 		local half_secs_remaining=$((secs * 2))
 		while kill -0 "$cmd_pid" 2>/dev/null; do
 			if ((half_secs_remaining <= 0)); then
-				kill -TERM "$cmd_pid" # SIGTERM (15) — graceful shutdown
+				# Kill the entire process group: SIGTERM first, then SIGKILL
+				kill -TERM -- "-${cmd_pgid}" 2>/dev/null || true # SIGTERM (15) — graceful
 				sleep 0.2
-				if kill -0 "$cmd_pid" 2>/dev/null; then
-					kill -KILL "$cmd_pid" || true # SIGKILL (9) — hard kill
+				if kill -0 -- "-${cmd_pgid}" 2>/dev/null; then
+					kill -KILL -- "-${cmd_pgid}" 2>/dev/null || true # SIGKILL (9) — hard kill
 				fi
 				wait "$cmd_pid" 2>/dev/null || true
 				return 124 # Normalise to GNU timeout convention
@@ -315,23 +332,26 @@ print_shared_error() {
 }
 
 # Print success message with consistent formatting
+# Writes to stderr so ANSI codes are not captured in $() subshells
 print_shared_success() {
 	local msg="$1"
-	echo -e "${COLOR_GREEN}[SUCCESS]${COLOR_RESET} $msg"
+	echo -e "${COLOR_GREEN}[SUCCESS]${COLOR_RESET} $msg" >&2
 	return 0
 }
 
 # Print warning message with consistent formatting
+# Writes to stderr so ANSI codes are not captured in $() subshells
 print_shared_warning() {
 	local msg="$1"
-	echo -e "${COLOR_YELLOW}[WARNING]${COLOR_RESET} $msg"
+	echo -e "${COLOR_YELLOW}[WARNING]${COLOR_RESET} $msg" >&2
 	return 0
 }
 
 # Print info message with consistent formatting
+# Writes to stderr so ANSI codes are not captured in $() subshells
 print_shared_info() {
 	local msg="$1"
-	echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} $msg"
+	echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} $msg" >&2
 	return 0
 }
 
@@ -695,6 +715,134 @@ files_include_workflow_changes() {
 }
 
 # =============================================================================
+# Session Origin Detection
+# =============================================================================
+# Detects whether the current session is a headless worker or interactive user.
+# Used to tag issues, TODOs, and PRs with origin:worker or origin:interactive.
+#
+# Detection signals (checked in priority order):
+#   1. FULL_LOOP_HEADLESS=true — set by supervisor dispatch
+#   2. AIDEVOPS_HEADLESS=true — set by headless-runtime-helper.sh
+#   3. OPENCODE_HEADLESS=true — set by OpenCode headless mode
+#   4. GITHUB_ACTIONS=true — CI environment
+#   5. No TTY (! -t 0 && ! -t 1) — non-interactive shell
+#   6. Default: interactive
+#
+# Usage:
+#   local origin; origin=$(detect_session_origin)
+#   # Returns: "worker" or "interactive"
+#
+#   local label; label=$(session_origin_label)
+#   # Returns: "origin:worker" or "origin:interactive"
+
+detect_session_origin() {
+	# Explicit headless env vars (set by dispatch infrastructure)
+	if [[ "${FULL_LOOP_HEADLESS:-}" == "true" ]]; then
+		echo "worker"
+		return 0
+	fi
+	if [[ "${AIDEVOPS_HEADLESS:-}" == "true" ]]; then
+		echo "worker"
+		return 0
+	fi
+	if [[ "${OPENCODE_HEADLESS:-}" == "true" ]]; then
+		echo "worker"
+		return 0
+	fi
+	# CI environments are always workers
+	if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+		echo "worker"
+		return 0
+	fi
+	# No TTY = non-interactive (headless dispatch, cron, pipe)
+	if [[ ! -t 0 ]] && [[ ! -t 1 ]]; then
+		echo "worker"
+		return 0
+	fi
+	echo "interactive"
+	return 0
+}
+
+# Returns the GitHub label string for the current session origin.
+# Usage: local label; label=$(session_origin_label)
+session_origin_label() {
+	local origin
+	origin=$(detect_session_origin)
+	echo "origin:${origin}"
+	return 0
+}
+
+# =============================================================================
+# Origin-Label-Aware gh Wrappers (t1756)
+# =============================================================================
+# Every gh issue/pr create call MUST use these wrappers to ensure the session
+# origin label (origin:worker or origin:interactive) is always applied.
+# GitHub deduplicates labels, so callers that already pass --label origin:*
+# will not get duplicates.
+#
+# Usage (drop-in replacement for gh issue create / gh pr create):
+#   gh_create_issue --repo owner/repo --title "..." --label "bug" --body "..."
+#   gh_create_pr --head branch --base main --title "..." --body "..."
+#
+# These forward all arguments to gh and append --label <origin>.
+
+gh_create_issue() {
+	local origin_label
+	origin_label=$(session_origin_label)
+	# Ensure labels exist on the target repo (once per repo per process)
+	_ensure_origin_labels_for_args "$@"
+	gh issue create "$@" --label "$origin_label"
+}
+
+gh_create_pr() {
+	local origin_label
+	origin_label=$(session_origin_label)
+	_ensure_origin_labels_for_args "$@"
+	gh pr create "$@" --label "$origin_label"
+}
+
+# Internal: extract --repo from args and ensure labels exist (cached per repo).
+_ORIGIN_LABELS_ENSURED=""
+_ensure_origin_labels_for_args() {
+	local repo=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--repo)
+			repo="${2:-}"
+			break
+			;;
+		--repo=*)
+			repo="${1#--repo=}"
+			break
+			;;
+		*) shift ;;
+		esac
+	done
+	[[ -z "$repo" ]] && return 0
+	# Skip if already ensured for this repo in this process
+	case ",$_ORIGIN_LABELS_ENSURED," in
+	*",$repo,"*) return 0 ;;
+	esac
+	ensure_origin_labels_exist "$repo"
+	_ORIGIN_LABELS_ENSURED="${_ORIGIN_LABELS_ENSURED:+$_ORIGIN_LABELS_ENSURED,}$repo"
+	return 0
+}
+
+# Ensure origin labels exist on a repo (idempotent).
+# Usage: ensure_origin_labels_exist "owner/repo"
+ensure_origin_labels_exist() {
+	local repo="$1"
+	[[ -z "$repo" ]] && return 1
+	gh label create "origin:worker" --repo "$repo" \
+		--description "Created by headless/pulse worker session" \
+		--color "C5DEF5" 2>/dev/null || true
+	gh label create "origin:interactive" --repo "$repo" \
+		--description "Created by interactive user session" \
+		--color "BFD4F2" 2>/dev/null || true
+	return 0
+}
+
+# =============================================================================
 # TODO.md Serialized Commit+Push
 # =============================================================================
 # Provides atomic locking and pull-rebase-retry for TODO.md operations.
@@ -869,13 +1017,102 @@ _todo_commit_push_inner() {
 #
 # Available to all scripts that source shared-constants.sh.
 
-WORKTREE_REGISTRY_DIR="${HOME}/.aidevops/.agent-workspace"
-WORKTREE_REGISTRY_DB="${WORKTREE_REGISTRY_DIR}/worktree-registry.db"
+WORKTREE_REGISTRY_DIR="${WORKTREE_REGISTRY_DIR:-${HOME}/.aidevops/.agent-workspace}"
+WORKTREE_REGISTRY_DB="${WORKTREE_REGISTRY_DB:-${WORKTREE_REGISTRY_DIR}/worktree-registry.db}"
+
+# Resolve the long-lived process ID that should own a worktree lock.
+# Priority:
+#   1) Explicit override (first argument)
+#   2) OpenCode interactive PID (OPENCODE_PID)
+#   3) Parent process PID (PPID)
+#   4) Current shell PID ($$)
+# Returns: PID string on stdout
+_resolve_worktree_owner_pid() {
+	local explicit_pid="${1:-}"
+	if [[ -n "$explicit_pid" ]]; then
+		printf '%s' "$explicit_pid"
+		return 0
+	fi
+
+	if [[ -n "${OPENCODE_PID:-}" ]]; then
+		printf '%s' "$OPENCODE_PID"
+		return 0
+	fi
+
+	if [[ -n "${PPID:-}" ]]; then
+		printf '%s' "$PPID"
+		return 0
+	fi
+
+	printf '%s' "$$"
+	return 0
+}
 
 # SQL-escape a value for SQLite (double single quotes)
 _wt_sql_escape() {
 	local val="$1"
 	echo "${val//\'/\'\'}"
+}
+
+# Normalize a filesystem path to a stable absolute form.
+# This prevents duplicate registry rows for equivalent paths
+# such as /var/... vs /private/var/... on macOS.
+_wt_normalize_path() {
+	local raw_path="$1"
+	if [[ -z "$raw_path" ]]; then
+		printf '%s' ""
+		return 0
+	fi
+
+	local normalized=""
+	if command -v python3 >/dev/null 2>&1; then
+		normalized=$(
+			python3 - "$raw_path" <<'PY' 2>/dev/null || true
+import os, sys
+print(os.path.realpath(sys.argv[1]))
+PY
+		)
+	fi
+
+	if [[ -z "$normalized" ]]; then
+		if [[ -d "$raw_path" ]]; then
+			normalized=$(cd "$raw_path" 2>/dev/null && pwd -P) || normalized="$raw_path"
+		else
+			normalized="$raw_path"
+		fi
+	fi
+
+	printf '%s' "$normalized"
+	return 0
+}
+
+# Resolve the registry key for a worktree path.
+# If a legacy non-normalized row already exists for an equivalent path,
+# return that stored key so ownership checks remain backward compatible.
+# Otherwise return the normalized path.
+_wt_registry_lookup_path() {
+	local requested_path="$1"
+	local normalized
+	normalized=$(_wt_normalize_path "$requested_path")
+
+	[[ ! -f "$WORKTREE_REGISTRY_DB" ]] && {
+		printf '%s' "$normalized"
+		return 0
+	}
+
+	local stored_path=""
+	while IFS= read -r stored_path; do
+		[[ -z "$stored_path" ]] && continue
+		local stored_normalized
+		stored_normalized=$(_wt_normalize_path "$stored_path")
+		if [[ "$stored_normalized" == "$normalized" ]]; then
+			printf '%s' "$stored_path"
+			return 0
+		fi
+	done < <(sqlite3 "$WORKTREE_REGISTRY_DB" "SELECT worktree_path FROM worktree_owners;" 2>/dev/null || true)
+
+	printf '%s' "$normalized"
+	return 0
 }
 
 # Initialize the registry database
@@ -905,7 +1142,7 @@ register_worktree() {
 	local branch="$2"
 	shift 2
 
-	local task_id="" batch_id="" session_id=""
+	local task_id="" batch_id="" session_id="" owner_pid_override=""
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--task)
@@ -920,24 +1157,127 @@ register_worktree() {
 			session_id="${2:-}"
 			shift 2
 			;;
+		--owner-pid)
+			owner_pid_override="${2:-}"
+			shift 2
+			;;
 		*) shift ;;
 		esac
 	done
 
+	if [[ -z "$session_id" ]]; then
+		session_id="${OPENCODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+	fi
+
+	local owner_pid
+	owner_pid=$(_resolve_worktree_owner_pid "$owner_pid_override")
+
 	_init_registry_db
+	wt_path=$(_wt_registry_lookup_path "$wt_path")
 
 	sqlite3 "$WORKTREE_REGISTRY_DB" "
         INSERT OR REPLACE INTO worktree_owners
             (worktree_path, branch, owner_pid, owner_session, owner_batch, task_id)
         VALUES
+			 ('$(_wt_sql_escape "$wt_path")',
+			  '$(_wt_sql_escape "$branch")',
+			  ${owner_pid},
+			  '$(_wt_sql_escape "$session_id")',
+			  '$(_wt_sql_escape "$batch_id")',
+			  '$(_wt_sql_escape "$task_id")');
+    " 2>/dev/null || true
+	return 0
+}
+
+# Claim ownership of a worktree without overwriting another live owner.
+# Arguments:
+#   $1 - worktree path (required)
+#   $2 - branch name (required)
+#   Flags: --task <id>, --batch <id>, --session <id>, --owner-pid <pid>
+# Returns:
+#   0 - ownership acquired or already held by this owner_pid
+#   1 - another live owner currently holds the worktree
+claim_worktree_ownership() {
+	local wt_path="$1"
+	local branch="$2"
+	shift 2
+
+	local task_id="" batch_id="" session_id="" owner_pid_override=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--task)
+			task_id="${2:-}"
+			shift 2
+			;;
+		--batch)
+			batch_id="${2:-}"
+			shift 2
+			;;
+		--session)
+			session_id="${2:-}"
+			shift 2
+			;;
+		--owner-pid)
+			owner_pid_override="${2:-}"
+			shift 2
+			;;
+		*) shift ;;
+		esac
+	done
+
+	if [[ -z "$session_id" ]]; then
+		session_id="${OPENCODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+	fi
+
+	local owner_pid
+	owner_pid=$(_resolve_worktree_owner_pid "$owner_pid_override")
+
+	_init_registry_db
+	wt_path=$(_wt_registry_lookup_path "$wt_path")
+
+	local existing_owner_pid
+	existing_owner_pid=$(sqlite3 "$WORKTREE_REGISTRY_DB" "
+        SELECT owner_pid FROM worktree_owners
+        WHERE worktree_path = '$(_wt_sql_escape "$wt_path")';
+    " 2>/dev/null || echo "")
+
+	if [[ -n "$existing_owner_pid" ]] && [[ "$existing_owner_pid" != "$owner_pid" ]]; then
+		if ! kill -0 "$existing_owner_pid" 2>/dev/null; then
+			unregister_worktree "$wt_path"
+		fi
+	fi
+
+	sqlite3 "$WORKTREE_REGISTRY_DB" "
+        INSERT OR IGNORE INTO worktree_owners
+            (worktree_path, branch, owner_pid, owner_session, owner_batch, task_id)
+        VALUES
             ('$(_wt_sql_escape "$wt_path")',
              '$(_wt_sql_escape "$branch")',
-             $$,
+             ${owner_pid},
              '$(_wt_sql_escape "$session_id")',
              '$(_wt_sql_escape "$batch_id")',
              '$(_wt_sql_escape "$task_id")');
     " 2>/dev/null || true
-	return 0
+
+	local final_owner_pid
+	final_owner_pid=$(sqlite3 "$WORKTREE_REGISTRY_DB" "
+        SELECT owner_pid FROM worktree_owners
+        WHERE worktree_path = '$(_wt_sql_escape "$wt_path")';
+    " 2>/dev/null || echo "")
+
+	if [[ "$final_owner_pid" == "$owner_pid" ]]; then
+		sqlite3 "$WORKTREE_REGISTRY_DB" "
+            UPDATE worktree_owners
+            SET branch = '$(_wt_sql_escape "$branch")',
+                owner_session = '$(_wt_sql_escape "$session_id")',
+                owner_batch = '$(_wt_sql_escape "$batch_id")',
+                task_id = '$(_wt_sql_escape "$task_id")'
+            WHERE worktree_path = '$(_wt_sql_escape "$wt_path")';
+        " 2>/dev/null || true
+		return 0
+	fi
+
+	return 1
 }
 
 # Unregister ownership of a worktree
@@ -947,6 +1287,7 @@ unregister_worktree() {
 	local wt_path="$1"
 
 	[[ ! -f "$WORKTREE_REGISTRY_DB" ]] && return 0
+	wt_path=$(_wt_registry_lookup_path "$wt_path")
 
 	sqlite3 "$WORKTREE_REGISTRY_DB" "
         DELETE FROM worktree_owners
@@ -964,6 +1305,7 @@ check_worktree_owner() {
 	local wt_path="$1"
 
 	[[ ! -f "$WORKTREE_REGISTRY_DB" ]] && return 1
+	wt_path=$(_wt_registry_lookup_path "$wt_path")
 
 	local owner_info
 	owner_info=$(sqlite3 -separator '|' "$WORKTREE_REGISTRY_DB" "
@@ -987,6 +1329,7 @@ is_worktree_owned_by_others() {
 	local wt_path="$1"
 
 	[[ ! -f "$WORKTREE_REGISTRY_DB" ]] && return 1
+	wt_path=$(_wt_registry_lookup_path "$wt_path")
 
 	local owner_pid
 	owner_pid=$(sqlite3 "$WORKTREE_REGISTRY_DB" "
@@ -1362,26 +1705,35 @@ resolve_model_tier() {
 }
 
 #######################################
-# Detect available AI CLI backends (t132.7)
-# Returns a newline-separated list of available backends.
-# Checks: opencode, claude
+# Detect available AI CLI backends (t132.7, t1665.5)
+# Returns a newline-separated list of available backend runtime IDs.
+# Delegates to runtime-registry.sh rt_detect_installed().
 #######################################
 detect_ai_backends() {
-	local -a backends=()
+	# Use runtime registry if loaded (t1665.5)
+	if type rt_detect_installed &>/dev/null; then
+		local installed
+		installed=$(rt_detect_installed) || true
+		if [[ -z "$installed" ]]; then
+			echo "none"
+			return 1
+		fi
+		echo "$installed"
+		return 0
+	fi
 
+	# Fallback: hardcoded check (registry not loaded)
+	local -a backends=()
 	if command -v opencode &>/dev/null; then
 		backends+=("opencode")
 	fi
-
 	if command -v claude &>/dev/null; then
 		backends+=("claude")
 	fi
-
 	if [[ ${#backends[@]} -eq 0 ]]; then
 		echo "none"
 		return 1
 	fi
-
 	printf '%s\n' "${backends[@]}"
 	return 0
 }
@@ -1523,6 +1875,13 @@ _CONFIG_HELPER="${_SC_SELF%/*}/config-helper.sh"
 if [[ -r "$_CONFIG_HELPER" ]]; then
 	# shellcheck source=/dev/null
 	source "$_CONFIG_HELPER"
+fi
+
+# Source runtime registry (t1665.1) — central data source for all AI CLI runtimes
+_RUNTIME_REGISTRY="${_SC_SELF%/*}/runtime-registry.sh"
+if [[ -r "$_RUNTIME_REGISTRY" ]]; then
+	# shellcheck source=/dev/null
+	source "$_RUNTIME_REGISTRY"
 fi
 
 # Legacy paths (kept for backward compatibility and migration)

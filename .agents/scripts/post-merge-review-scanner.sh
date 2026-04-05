@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # post-merge-review-scanner.sh — Scan merged PRs for unactioned review bot feedback
 #
 # Finds actionable suggestions from AI review bots (CodeRabbit, Gemini Code
@@ -12,6 +14,11 @@
 #
 # t1386: https://github.com/marcusquinn/aidevops/issues/2785
 set -euo pipefail
+
+# Source shared-constants for gh_create_issue wrapper (t1756)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=shared-constants.sh
+[[ -f "${SCRIPT_DIR}/shared-constants.sh" ]] && source "${SCRIPT_DIR}/shared-constants.sh"
 
 SCANNER_DAYS="${SCANNER_DAYS:-7}"
 SCANNER_MAX_ISSUES="${SCANNER_MAX_ISSUES:-10}"
@@ -67,6 +74,14 @@ create_issue() {
 	gh label create "source:review-scanner" --repo "$repo" \
 		--description "Auto-created by post-merge-review-scanner.sh" --color "C2E0C6" --force || true
 	local body
+	# Build signature footer
+	local sig_footer=""
+	local sig_helper
+	sig_helper="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/gh-signature-helper.sh"
+	if [[ -x "$sig_helper" ]]; then
+		sig_footer=$("$sig_helper" footer 2>/dev/null || echo "")
+	fi
+
 	body="## Unaddressed review bot suggestions
 
 PR #${pr} was merged with unaddressed review bot feedback.
@@ -74,10 +89,8 @@ PR #${pr} was merged with unaddressed review bot feedback.
 
 ### Actionable comments
 
-${summary}
----
-*Auto-created by post-merge-review-scanner.sh (t1386)*"
-	gh issue create --repo "$repo" --title "$title" --label "$SCANNER_LABEL,source:review-scanner" --body "$body"
+${summary}${sig_footer}"
+	gh_create_issue --repo "$repo" --title "$title" --label "$SCANNER_LABEL,source:review-scanner" --body "$body"
 }
 
 do_scan() {

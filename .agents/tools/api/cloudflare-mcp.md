@@ -12,198 +12,84 @@ tools:
   cloudflare-api_*: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Cloudflare Code Mode MCP
 
 <!-- AI-CONTEXT-START -->
 
 ## Quick Reference
 
-- **Server**: `https://mcp.cloudflare.com/mcp` (remote, no install)
-- **Auth**: OAuth 2.0 via Cloudflare dashboard (browser flow on first connect)
+- **Server**: `https://mcp.cloudflare.com/mcp` (remote)
+- **Auth**: OAuth 2.0 browser flow on first use
 - **Config key**: `cloudflare-api` in `configs/mcp-servers-config.json.txt`
-- **Setup guide**: `aidevops/mcp-integrations.md` → Cloudflare Code Mode MCP section
-- **Platform docs**: `services/hosting/cloudflare-platform.md` (60 products, API refs)
+- **Setup**: `aidevops/mcp-integrations.md` → Cloudflare Code Mode MCP
+- **Platform reference**: `services/hosting/cloudflare-platform-skill.md`
+- **Capabilities**: Workers, D1, KV, R2, Pages, AI Gateway, DNS, Analytics
+- **Per-agent**: Set `cloudflare-api_*: true` in subagent frontmatter (disabled globally, enabled per agent)
 
-**Capabilities**:
-- Workers: deploy, update, list, tail logs
-- D1: execute SQL, inspect schema, list databases
-- KV: get/put/delete/list keys across namespaces
-- R2: list buckets, get/put/delete objects
-- Pages: list projects, trigger deployments
-- AI Gateway: view logs and analytics
-- DNS: read/manage records
-- Analytics: zone traffic and performance data
+## Security
 
-<!-- AI-CONTEXT-END -->
+- **Scopes**: Access matches Cloudflare dashboard permissions
+- **Secrets**: No tokens in config; MCP client stores OAuth token
+- **Revocation**: `dash.cloudflare.com` → My Profile → API Tokens → OAuth Apps
+- **Least privilege**: Use a sub-account or scoped API token; see `services/hosting/cloudflare.md`
+- **Audit trail**: Actions appear in the Cloudflare audit log
 
 ## Auth Setup
 
-Cloudflare Code Mode MCP uses OAuth 2.0 — no API tokens to manage manually.
+First tool call opens `dash.cloudflare.com` for OAuth 2.0 authorization.
 
-### First-Time Connection
-
-1. Add the server config (see below)
-2. Start your MCP client (Claude Desktop, OpenCode, etc.)
-3. On first tool call, a browser window opens to `dash.cloudflare.com`
-4. Authorize the OAuth app for your account
-5. The client stores the token — subsequent connections are seamless
-
-### Config
-
-**Claude Desktop** — config file location by OS:
-
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`)
 
 ```json
-{
-  "mcpServers": {
-    "cloudflare-api": {
-      "url": "https://mcp.cloudflare.com/mcp"
-    }
-  }
-}
+{ "mcpServers": { "cloudflare-api": { "url": "https://mcp.cloudflare.com/mcp" } } }
 ```
 
-**OpenCode** (`~/.config/opencode/config.json`):
+**OpenCode** (`~/.config/opencode/config.json`)
 
 ```json
-{
-  "mcp": {
-    "cloudflare-api": {
-      "type": "remote",
-      "url": "https://mcp.cloudflare.com/mcp"
-    }
-  }
-}
+{ "mcp": { "cloudflare-api": { "type": "remote", "url": "https://mcp.cloudflare.com/mcp" } } }
 ```
 
-**Claude Code CLI**:
+**Claude Code CLI** (`--transport http` required even with HTTPS endpoint)
 
 ```bash
 claude mcp add cloudflare-api --transport http https://mcp.cloudflare.com/mcp
 ```
 
-> **Note**: `--transport http` refers to the MCP transport type (streamable HTTP), not the URL scheme. The value `http` is correct even though the endpoint URL uses HTTPS — the flag selects the protocol framing, not the TLS layer.
+## Usage Patterns
 
-## Security Model
+| Service | Typical prompts |
+|---------|-----------------|
+| **Workers** | `List all Workers` · `Show code for Worker "api-gateway"` · `Deploy ./src/worker.ts as "my-worker"` · `Tail logs for "my-worker"` |
+| **D1** | `List D1 databases` · `Run SQL: SELECT * FROM users LIMIT 10 on "prod-db"` · `Show schema for "prod-db"` |
+| **KV** | `List KV namespaces` · `Get key "config:feature-flags" from "APP_CONFIG"` · `List keys with prefix "user:" in "APP_DATA"` |
+| **R2** | `List R2 buckets` · `List objects in "assets" with prefix "images/"` · `Upload ./dist/app.js to "releases" as "v1.2.3/app.js"` |
+| **Pages** | `List Pages projects` · `Show deployments for "my-site"` · `Trigger deployment for "my-site"` |
+| **AI Gateway** | `List AI Gateways` · `Show logs for "production"` · `Get analytics for last 24h` |
+| **DNS** | `List DNS records for "example.com"` · `Add A record: api.example.com → 1.2.3.4 TTL 300` |
 
-- **OAuth scopes**: Tied to your Cloudflare account — access matches your dashboard permissions
-- **No secrets in config**: The URL contains no credentials; OAuth tokens are stored by the MCP client in its secure token store
-- **Revocation**: Revoke access at `dash.cloudflare.com` > My Profile > API Tokens > OAuth Apps
-- **Least privilege**: If you need to restrict scope, use a sub-account or create a scoped API token instead (see `services/hosting/cloudflare.md`)
-- **Audit trail**: All MCP actions appear in Cloudflare's audit log under your account
-
-## Search Patterns
-
-Use these patterns when asking the AI to interact with Cloudflare resources:
-
-### Workers
+### Multi-Step Examples
 
 ```text
-List all Workers in my account
-Show the code for Worker named "api-gateway"
-Deploy the Worker script at ./src/worker.ts to "my-worker"
-Tail logs for Worker "my-worker"
+# Deploy Worker with bindings
+Read ./src/worker.ts and deploy as "my-api". Bind to KV namespace "APP_DATA" and D1 "prod-db".
+
+# Query D1
+On "analytics" D1: SELECT date, count(*) as visits FROM page_views
+WHERE date >= date('now', '-7 days') GROUP BY date ORDER BY date DESC
+
+# Sync to R2
+Upload all files in ./dist/ to R2 "static-assets" under prefix "v2.1.0/". List to confirm.
 ```
-
-### D1 (SQLite)
-
-```text
-List all D1 databases
-Run SQL: SELECT * FROM users LIMIT 10 on database "prod-db"
-Show the schema for D1 database "prod-db"
-Create a table in D1: CREATE TABLE events (id INTEGER PRIMARY KEY, name TEXT)
-```
-
-### KV (Key-Value)
-
-```text
-List all KV namespaces
-Get the value of key "config:feature-flags" from namespace "APP_CONFIG"
-Put key "session:abc123" with value "..." in namespace "SESSIONS"
-List all keys with prefix "user:" in namespace "APP_DATA"
-Delete key "cache:stale" from namespace "CACHE"
-```
-
-### R2 (Object Storage)
-
-```text
-List all R2 buckets
-List objects in bucket "assets" with prefix "images/"
-Get object "images/logo.png" from bucket "assets"
-Upload file ./dist/app.js to bucket "releases" as "v1.2.3/app.js"
-Delete object "tmp/old-file.txt" from bucket "assets"
-```
-
-### Pages
-
-```text
-List all Pages projects
-Show deployments for Pages project "my-site"
-Trigger a new deployment for Pages project "my-site"
-```
-
-### AI Gateway
-
-```text
-List all AI Gateways
-Show recent logs for AI Gateway "production"
-Get analytics for AI Gateway "production" for the last 24 hours
-```
-
-### DNS
-
-```text
-List DNS records for zone "example.com"
-Add A record: api.example.com → 1.2.3.4 with TTL 300
-Delete CNAME record "www" from zone "example.com"
-```
-
-## Execute Patterns
-
-Common end-to-end workflows:
-
-### Deploy a Worker
-
-```text
-Read ./src/worker.ts and deploy it as a Cloudflare Worker named "my-api".
-Bind it to the KV namespace "APP_DATA" and D1 database "prod-db".
-```
-
-### Query D1 and return results
-
-```text
-On D1 database "analytics", run:
-SELECT date, count(*) as visits FROM page_views
-WHERE date >= date('now', '-7 days')
-GROUP BY date ORDER BY date DESC
-```
-
-### Sync local files to R2
-
-```text
-Upload all files in ./dist/ to R2 bucket "static-assets" under prefix "v2.1.0/".
-List the uploaded objects to confirm.
-```
-
-### Inspect KV namespace
-
-```text
-List all keys in KV namespace "FEATURE_FLAGS".
-For each key, get its value and show me the full config.
-```
-
-## Per-Agent Enablement
-
-This subagent has `cloudflare-api_*: true` in its tools frontmatter. The MCP tools are disabled globally and enabled only when this subagent is active.
-
-To invoke this subagent: reference `tools/api/cloudflare-mcp.md` in your agent's tools section, or ask the AI to use Cloudflare MCP tools directly when this subagent is loaded.
 
 ## Related Docs
 
 - `services/hosting/cloudflare.md` — DNS/CDN API setup, token scoping, security
-- `services/hosting/cloudflare-platform.md` — Full platform reference (Workers, D1, R2, KV, Pages, AI, 60 products)
+- `services/hosting/cloudflare-platform-skill.md` — Full platform reference (Workers, D1, R2, KV, Pages, AI, 60 products)
 - `aidevops/mcp-integrations.md` — All MCP integrations overview and setup
 - `configs/mcp-servers-config.json.txt` — Master MCP server config template
+
+<!-- AI-CONTEXT-END -->

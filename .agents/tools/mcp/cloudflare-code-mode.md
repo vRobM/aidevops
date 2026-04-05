@@ -8,185 +8,59 @@ mcp_servers:
   - cloudflare-api
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Cloudflare Code Mode MCP
 
-## What It Is
-
-The Cloudflare Code Mode MCP server provides access to the **entire Cloudflare API** (2,500+ endpoints) via just **two tools** consuming ~1,000 tokens — a 99.9% reduction vs a native MCP server (which would require 1.17M tokens).
-
-**MCP server URL**: `https://mcp.cloudflare.com/mcp`
-
-**Config template**: `configs/mcp-templates/cloudflare-api.json`
+**MCP server URL**: `https://mcp.cloudflare.com/mcp` | **Config template**: `configs/mcp-templates/cloudflare-api.json`
 
 ## When to Use This (vs cloudflare-platform skill)
 
-| Intent | Use |
-|--------|-----|
-| Manage DNS records, zones, WAF rules | Code Mode MCP (`search` + `execute`) |
-| Configure DDoS protection, firewall rules | Code Mode MCP |
-| Manage R2 buckets, Workers deployments | Code Mode MCP |
-| Zero Trust, Access policies | Code Mode MCP |
-| Build a Worker (SDK, bindings, patterns) | `cloudflare-platform` skill |
-| Configure wrangler.toml, local dev | `cloudflare-platform` skill |
-| Debug Workers runtime issues | `cloudflare-platform` skill |
-| Understand Cloudflare product architecture | `cloudflare-platform` skill |
+- **Code Mode MCP** (`search` + `execute`): Manage DNS, zones, WAF, DDoS, firewall rules, R2 buckets, Workers deployments, Zero Trust, Access policies
+- **`cloudflare-platform-skill`**: Build Workers (SDK, bindings, patterns), configure wrangler.toml, local dev, debug runtime issues, understand product architecture
 
 ## Setup
 
-### Interactive (OAuth 2.1)
-
-Add to your MCP client config:
+**Interactive (OAuth 2.1):** Add to MCP config — on first connection, Cloudflare prompts for authorization with downscoped permissions:
 
 ```json
-{
-  "mcpServers": {
-    "cloudflare-api": {
-      "url": "https://mcp.cloudflare.com/mcp"
-    }
-  }
-}
+{ "mcpServers": { "cloudflare-api": { "url": "https://mcp.cloudflare.com/mcp" } } }
 ```
 
-On first connection, you are redirected to Cloudflare to authorize and select permissions. The token is downscoped to only the capabilities you grant.
-
-### CI/CD (API Token)
-
-Create a Cloudflare API token with required permissions, then pass as bearer token:
-
-```text
-Authorization: Bearer <your-cloudflare-api-token>
-```
-
-See `services/hosting/cloudflare.md` for token creation guidance.
+**CI/CD:** Create a Cloudflare API token (see `services/hosting/cloudflare.md`), pass as `Authorization: Bearer <token>`.
 
 ## Tools
 
+Both tools run in a **sandboxed V8 isolate** (no filesystem, no env var leakage, external fetches disabled). OAuth 2.1 downscopes the token to user-approved permissions only.
+
 ### `search(code)`
 
-Searches the Cloudflare OpenAPI spec. The `spec` object contains the full spec with all `$refs` pre-resolved. Write JavaScript to filter endpoints.
+Searches the Cloudflare OpenAPI spec. The `spec` object has all `$refs` pre-resolved. Write JavaScript to filter endpoints — the full spec never enters model context, only filtered results.
 
 ```javascript
-// Find WAF and ruleset endpoints for a zone
-async () => {
-  const results = [];
-  for (const [path, methods] of Object.entries(spec.paths)) {
-    if (path.includes('/zones/') &&
-        (path.includes('firewall/waf') || path.includes('rulesets'))) {
-      for (const [method, op] of Object.entries(methods)) {
-        results.push({ method: method.toUpperCase(), path, summary: op.summary });
-      }
-    }
-  }
-  return results;
-}
-```
-
-```javascript
-// Inspect a specific endpoint's schema
-async () => {
-  const op = spec.paths['/zones/{zone_id}/rulesets']?.get;
-  const items = op?.responses?.['200']?.content?.['application/json']?.schema;
-  const props = items?.allOf?.[1]?.properties?.result?.items?.allOf?.[1]?.properties;
-  return { phases: props?.phase?.enum };
-}
+// Find WAF/ruleset endpoints in zones
+async () => Object.entries(spec.paths)
+  .filter(([p]) => p.includes('/zones/') && (p.includes('firewall/waf') || p.includes('rulesets')))
+  .flatMap(([p, ms]) => Object.entries(ms).map(([m, op]) => ({ method: m.toUpperCase(), path: p, summary: op.summary })))
 ```
 
 ### `execute(code)`
 
-Executes JavaScript against the Cloudflare API. The sandbox provides a `cloudflare.request()` client for authenticated API calls. Runs in a V8 isolate (no filesystem, no env var leakage, external fetches disabled by default).
+Executes JavaScript against the Cloudflare API via `cloudflare.request()`. Zone-level: `/zones/{zone_id}/...`, account-level: `/accounts/{account_id}/...`. Chain multiple calls in one invocation to batch operations.
 
 ```javascript
-// List rulesets on a zone
+// PUT with body — enable managed WAF ruleset
 async () => {
-  const zoneId = "<YOUR_ZONE_ID>"; // replace with actual zone ID
-  const response = await cloudflare.request({
-    method: "GET",
-    path: `/zones/${zoneId}/rulesets`
-  });
-  return response.result.map(rs => ({ name: rs.name, phase: rs.phase, kind: rs.kind }));
-}
-```
-
-```javascript
-// Chain multiple API calls in one execution
-async () => {
-  const zoneId = "<YOUR_ZONE_ID>"; // replace with actual zone ID
-  const ddos = await cloudflare.request({
-    method: "GET",
-    path: `/zones/${zoneId}/rulesets/phases/ddos_l7/entrypoint`
-  });
-  const waf = await cloudflare.request({
-    method: "GET",
-    path: `/zones/${zoneId}/rulesets/phases/http_request_firewall_managed/entrypoint`
-  });
-  return { ddos: ddos.result, waf: waf.result };
-}
-```
-
-## How Code Mode Works
-
-1. **`search()`** — agent writes JS against the OpenAPI spec object to discover endpoints. The full spec never enters the model context; only the filtered results do.
-2. **`execute()`** — agent writes JS that calls `cloudflare.request()`. Multiple API calls can be chained in a single execution. Results are returned directly.
-3. Both tools run in a **Dynamic Worker isolate** (sandboxed V8, no file system, no env var leakage).
-4. **OAuth 2.1** downscopes the token to user-approved permissions only.
-
-## Common Operations
-
-### DNS Management
-
-```javascript
-// search: find DNS record endpoints
-async () => {
-  return Object.entries(spec.paths)
-    .filter(([path]) => path.includes('/dns_records'))
-    .map(([path, methods]) => ({
-      path,
-      methods: Object.keys(methods)
-    }));
-}
-
-// execute: list DNS records
-async () => {
-  const zoneId = "<YOUR_ZONE_ID>"; // replace with actual zone ID
-  const res = await cloudflare.request({
-    method: "GET",
-    path: `/zones/${zoneId}/dns_records`
-  });
-  return res.result;
-}
-```
-
-### WAF / Firewall Rules
-
-```javascript
-// execute: enable managed WAF ruleset
-async () => {
-  const zoneId = "<YOUR_ZONE_ID>"; // replace with actual zone ID
+  const zoneId = "<YOUR_ZONE_ID>";
   return await cloudflare.request({
     method: "PUT",
     path: `/zones/${zoneId}/rulesets/phases/http_request_firewall_managed/entrypoint`,
     body: {
-      rules: [{
-        action: "execute",
-        expression: "true",
-        action_parameters: { id: "efb7b8c949ac4650a09736fc376e9aee" }
-      }]
+      rules: [{ action: "execute", expression: "true",
+        action_parameters: { id: "efb7b8c949ac4650a09736fc376e9aee" } }]
     }
   });
-}
-```
-
-### R2 Bucket Management
-
-```javascript
-// execute: list R2 buckets
-async () => {
-  const accountId = "<YOUR_ACCOUNT_ID>"; // replace with actual account ID
-  const res = await cloudflare.request({
-    method: "GET",
-    path: `/accounts/${accountId}/r2/buckets`
-  });
-  return res.result;
 }
 ```
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # =============================================================================
 # Pre-Edit Git Worktree Check
 # =============================================================================
@@ -7,14 +9,21 @@
 #
 # Usage:
 #   ~/.aidevops/agents/scripts/pre-edit-check.sh
+#   ~/.aidevops/agents/scripts/pre-edit-check.sh --loop-mode --file "path/to/file"
 #   ~/.aidevops/agents/scripts/pre-edit-check.sh --loop-mode --task "description"
 #   ~/.aidevops/agents/scripts/pre-edit-check.sh --check-command "git push --force origin main"
 #   ~/.aidevops/agents/scripts/pre-edit-check.sh --verify-op "git push --force origin main"
 #
+# Main-branch write protection (t1712):
+#   Pass --file <path> for path-based enforcement (preferred).
+#   Allowlisted paths (writable on main without a worktree): README.md, TODO.md, todo/**
+#   All other paths require a linked worktree.
+#   --task description heuristics are a fallback when --file is not provided.
+#
 # Exit codes:
-#   0 - OK to proceed (in a linked worktree, or docs-only on main)
+#   0 - OK to proceed (in a linked worktree, or allowlisted path on main)
 #   1 - STOP (on protected main/master, interactive mode)
-#   2 - Create worktree (loop mode detected code task on main)
+#   2 - Create worktree (loop mode detected non-allowlisted path on main)
 #   3 - WARNING (canonical repo directory is not on main - move it back and continue from a linked worktree)
 #
 # High-stakes detection (--check-command):
@@ -39,14 +48,18 @@ set -euo pipefail
 # =============================================================================
 # Loop Mode Support
 # =============================================================================
-# When --loop-mode is passed, the script auto-decides based on task description:
-# - Docs-only tasks (README, CHANGELOG, docs/) -> stay on main (exit 0)
-# - Code tasks (feature, fix, implement, etc.) -> signal worktree needed (exit 2)
+# When --loop-mode is passed, the script auto-decides based on file path or task description:
+# - Allowlisted paths (README.md, TODO.md, todo/**) -> stay on main (exit 0)
+# - All other paths -> signal worktree needed (exit 2)
+#
+# Pass --file <path> for path-based enforcement (preferred, harder to bypass).
+# Fall back to --task description heuristics only when no --file is provided.
 
 LOOP_MODE=false
 TASK_DESC=""
 CHECK_COMMAND=""
 VERIFY_OP=""
+TARGET_FILE=""
 
 while [[ $# -gt 0 ]]; do
 	case $1 in
@@ -56,6 +69,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--task)
 		TASK_DESC="$2"
+		shift 2
+		;;
+	--file)
+		TARGET_FILE="$2"
 		shift 2
 		;;
 	--check-command)
@@ -72,7 +89,126 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-# Function to detect if task is docs-only
+# =============================================================================
+# Main-branch file allowlist (t1712)
+# =============================================================================
+# Canonical list of paths writable on main/master without a linked worktree.
+# All other paths require a worktree.
+#
+# Allowlisted paths:
+#   README.md          — top-level readme
+#   TODO.md            — task backlog
+#   todo/**            — plans, briefs, task files
+#
+# Usage: _canonicalize_repo_relative_path <file_path> <repo_root>
+# Returns: canonical repo-relative path on stdout, or "OUTSIDE_REPO" if path escapes root
+# Resolves ./ and ../ segments without requiring the path to exist on disk.
+_canonicalize_repo_relative_path() {
+	local file_path="$1"
+	local repo_root="$2"
+
+	# Resolve to absolute path (relative paths are resolved from repo_root)
+	local abs_path
+	if [[ "$file_path" == /* ]]; then
+		abs_path="$file_path"
+	else
+		abs_path="${repo_root}/${file_path}"
+	fi
+
+	# Use python3 for portable normpath (resolves ./ and ../ without filesystem access)
+	if command -v python3 &>/dev/null; then
+		python3 - "$abs_path" "$repo_root" <<'PYEOF'
+import os, sys
+abs_path = sys.argv[1]
+repo_root = sys.argv[2]
+canonical = os.path.normpath(abs_path)
+if canonical.startswith(repo_root + os.sep) or canonical == repo_root:
+    print(os.path.relpath(canonical, repo_root))
+else:
+    print("OUTSIDE_REPO")
+PYEOF
+		return 0
+	fi
+
+	# Fallback: pure bash normalization (handles common cases without python3)
+	# Remove double slashes
+	abs_path="${abs_path//\/\//\/}"
+	# Resolve embedded ./ segments
+	while [[ "$abs_path" == *"/./"* ]]; do
+		abs_path="${abs_path//\/.\//\/}"
+	done
+	# Resolve ../ segments iteratively
+	while [[ "$abs_path" == *"/../"* ]]; do
+		abs_path=$(echo "$abs_path" | sed 's|[^/]*/\.\./||')
+	done
+	# Check if within repo root
+	if [[ "$abs_path" == "${repo_root}/"* ]] || [[ "$abs_path" == "$repo_root" ]]; then
+		echo "${abs_path#"${repo_root}/"}"
+	else
+		echo "OUTSIDE_REPO"
+	fi
+	return 0
+}
+
+# Usage: is_main_allowlisted_path <file_path>
+# Returns: 0 if path is allowlisted, 1 if not
+# Canonicalizes the path to a repo-relative form before evaluating the allowlist,
+# preventing path traversal bypasses (e.g. todo/../secret.py).
+is_main_allowlisted_path() {
+	local file_path="$1"
+
+	# Resolve repo root for canonicalization
+	local repo_root
+	repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+
+	local normalised
+	if [[ -n "$repo_root" ]]; then
+		# Canonicalize: resolve ./ and ../ segments, reject paths outside repo root
+		normalised="$(_canonicalize_repo_relative_path "$file_path" "$repo_root")"
+		# Reject paths that escape the repo root
+		if [[ "$normalised" == "OUTSIDE_REPO" ]]; then
+			return 1
+		fi
+	else
+		# No git repo context: fall back to simple normalization
+		# Strip leading ./ to get a repo-relative path
+		normalised=$(echo "$file_path" | sed 's|^\./||')
+
+		# Reject path traversal: any path containing .. segments is not allowlisted.
+		case "$normalised" in
+		*..*)
+			return 1
+			;;
+		esac
+
+		# Reject absolute paths
+		case "$normalised" in
+		/*)
+			return 1
+			;;
+		esac
+	fi
+
+	# Exact matches
+	case "$normalised" in
+	README.md | TODO.md)
+		return 0
+		;;
+	esac
+
+	# Prefix matches (todo/ subtree)
+	case "$normalised" in
+	todo/*)
+		return 0
+		;;
+	esac
+
+	return 1
+}
+
+# Function to detect if task is docs-only (fallback when --file is not provided)
+# Deprecated: prefer --file for path-based enforcement. Kept for backward compatibility
+# with callers that only pass --task descriptions.
 is_docs_only() {
 	local task="$1"
 	# Use tr for lowercase (portable across bash versions including macOS default bash 3.x)
@@ -99,6 +235,18 @@ is_docs_only() {
 
 	# Default: not docs-only (safer to require a worktree)
 	return 1
+}
+
+# Unified main-branch write check: path-based when --file provided, else task heuristic.
+# Returns: 0 if write is allowed on main, 1 if worktree required
+is_main_write_allowed() {
+	if [[ -n "$TARGET_FILE" ]]; then
+		is_main_allowlisted_path "$TARGET_FILE"
+		return $?
+	fi
+	# Fallback: task-description heuristic (backward compat)
+	is_docs_only "$TASK_DESC"
+	return $?
 }
 
 # =============================================================================
@@ -287,18 +435,34 @@ fi
 
 # Check if on main or master
 if [[ "$current_branch" == "main" || "$current_branch" == "master" ]]; then
-	# Loop mode: auto-decide based on task description
+	# Loop mode: auto-decide based on file path (preferred) or task description
 	if [[ "$LOOP_MODE" == "true" ]]; then
-		if is_docs_only "$TASK_DESC"; then
-			echo -e "${YELLOW}LOOP-AUTO${NC}: Docs-only task detected, staying on $current_branch"
+		if is_main_write_allowed; then
+			if [[ -n "$TARGET_FILE" ]]; then
+				echo -e "${YELLOW}LOOP-AUTO${NC}: Allowlisted path '$TARGET_FILE', staying on $current_branch"
+			else
+				echo -e "${YELLOW}LOOP-AUTO${NC}: Docs-only task detected, staying on $current_branch"
+			fi
 			echo "LOOP_DECISION=stay"
 			exit 0
 		else
-			# Auto-create worktree for code changes
-			echo -e "${YELLOW}LOOP-AUTO${NC}: Code task detected, worktree required"
+			# Auto-create worktree for non-allowlisted paths / code changes
+			if [[ -n "$TARGET_FILE" ]]; then
+				echo -e "${YELLOW}LOOP-AUTO${NC}: Non-allowlisted path '$TARGET_FILE', worktree required"
+			else
+				echo -e "${YELLOW}LOOP-AUTO${NC}: Code task detected, worktree required"
+			fi
 			echo "LOOP_DECISION=worktree"
 			exit 2 # Special exit code for "create worktree"
 		fi
+	fi
+
+	# Short-circuit: explicit --file on an allowlisted path is always allowed,
+	# regardless of loop-mode or headless state (t1712).
+	if [[ -n "$TARGET_FILE" ]] && is_main_allowlisted_path "$TARGET_FILE"; then
+		echo -e "${GREEN}OK${NC} - Allowlisted path '$TARGET_FILE' on $current_branch"
+		echo "MAIN_ALLOWLISTED=true"
+		exit 0
 	fi
 
 	# Detect headless mode (GH#4400): workers dispatched without --loop-mode
@@ -310,7 +474,7 @@ if [[ "$current_branch" == "main" || "$current_branch" == "master" ]]; then
 		echo -e "${RED}BLOCKED${NC}: Canonical repo directory is on protected '$current_branch'; move code edits into a linked worktree."
 		echo "HEADLESS_BLOCKED=true"
 		echo "ACTION_REQUIRED=create_worktree"
-		echo "HINT: Use --loop-mode --task 'description' to auto-create a worktree,"
+		echo "HINT: Use --loop-mode --file 'path' or --loop-mode --task 'description' to auto-create a worktree,"
 		echo "or dispatch with --dir pointing to an existing worktree, not the main repo."
 		exit 2
 	fi
@@ -364,15 +528,79 @@ else
 		"$SCRIPT_DIR/terminal-title-helper.sh" sync 2>/dev/null || true
 	fi
 
+	# Sync OpenCode session title with current branch (silent, non-blocking).
+	# Only runs inside OpenCode sessions; helper resolves target session by cwd.
+	if [[ "${OPENCODE:-}" == "1" ]] && [[ -x "$SCRIPT_DIR/session-rename-helper.sh" ]]; then
+		"$SCRIPT_DIR/session-rename-helper.sh" sync-branch >/dev/null 2>&1 || true
+	fi
+
+	# Linked worktree ownership gate (GH#14413 hardening):
+	# exactly one active session/process may hold a writable worktree at a time.
+	worktree_path=""
+	worktree_path=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+	worktree_owner_pid="${OPENCODE_PID:-${PRE_EDIT_OWNER_PID:-${PPID:-$$}}}"
+	worktree_owner_session="${OPENCODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+
+	if declare -f claim_worktree_ownership >/dev/null 2>&1; then
+		if ! claim_worktree_ownership "$worktree_path" "$current_branch" --owner-pid "$worktree_owner_pid" --session "$worktree_owner_session"; then
+			owner_info=""
+			owner_info=$(check_worktree_owner "$worktree_path" 2>/dev/null || true)
+			owner_pid="unknown"
+			owner_session=""
+			owner_created=""
+			if [[ -n "$owner_info" ]]; then
+				IFS='|' read -r owner_pid owner_session _ _ owner_created <<<"$owner_info"
+			fi
+
+			if [[ ! -t 0 ]] || [[ "${FULL_LOOP_HEADLESS:-false}" == "true" ]] || [[ "$LOOP_MODE" == "true" ]]; then
+				echo -e "${RED}BLOCKED${NC}: linked worktree is owned by another active session/process"
+				echo "WORKTREE_OWNERSHIP_CONFLICT=true"
+				echo "ACTION_REQUIRED=create_worktree"
+				echo "WORKTREE_PATH=$worktree_path"
+				echo "WORKTREE_OWNER_PID=$owner_pid"
+				if [[ -n "$owner_session" ]]; then
+					echo "WORKTREE_OWNER_SESSION=$owner_session"
+				fi
+				if [[ -n "$owner_created" ]]; then
+					echo "WORKTREE_OWNER_SINCE=$owner_created"
+				fi
+				echo "HINT: create a dedicated worktree for this session/task and retry"
+				exit 2
+			fi
+
+			echo ""
+			echo -e "${RED}${BOLD}======================================================${NC}"
+			echo -e "${RED}${BOLD}  STOP - WORKTREE OWNED BY ANOTHER ACTIVE SESSION${NC}"
+			echo -e "${RED}${BOLD}======================================================${NC}"
+			echo ""
+			echo "Worktree: $worktree_path"
+			echo "Owner PID: $owner_pid"
+			if [[ -n "$owner_session" ]]; then
+				echo "Owner session: $owner_session"
+			fi
+			if [[ -n "$owner_created" ]]; then
+				echo "Owned since: $owner_created"
+			fi
+			echo ""
+			echo -e "${YELLOW}Use a dedicated linked worktree for this session/task to avoid cross-session edits.${NC}"
+			echo ""
+			exit 1
+		fi
+	fi
+
 	if [[ "$is_main_worktree" == "true" ]]; then
 		# Loop mode: auto-decide for canonical repo directory off main
 		if [[ "$LOOP_MODE" == "true" ]]; then
-			if is_docs_only "$TASK_DESC"; then
-				echo -e "${YELLOW}LOOP-AUTO${NC}: Docs-only task in main repo directory, continuing"
+			if is_main_write_allowed; then
+				if [[ -n "$TARGET_FILE" ]]; then
+					echo -e "${YELLOW}LOOP-AUTO${NC}: Allowlisted path '$TARGET_FILE' in main repo directory, continuing"
+				else
+					echo -e "${YELLOW}LOOP-AUTO${NC}: Docs-only task in main repo directory, continuing"
+				fi
 				echo "LOOP_DECISION=continue"
 				exit 0
 			else
-				# For code tasks, warn but continue so the caller can relocate into a worktree.
+				# For non-allowlisted paths / code tasks, warn but continue so the caller can relocate into a worktree.
 				echo -e "${YELLOW}LOOP-AUTO${NC}: Main repo directory is off main (not ideal - relocate to a linked worktree)"
 				echo "LOOP_DECISION=continue_warning"
 				exit 0
@@ -412,7 +640,7 @@ else
 				task_assignee=""
 				task_assignee=$(echo "$task_line" | grep -oE 'assignee:[A-Za-z0-9._@-]+' | head -1 | sed 's/^assignee://' || true)
 				if [[ -n "$task_assignee" ]]; then
-					# Must match get_aidevops_identity() in supervisor-helper.sh
+					# Must match get_aidevops_identity() in pulse-session-helper.sh
 					my_identity="${AIDEVOPS_IDENTITY:-$(whoami 2>/dev/null || echo unknown)@$(hostname -s 2>/dev/null || echo local)}"
 					if [[ "$task_assignee" != "$my_identity" ]]; then
 						echo -e "${YELLOW}WARNING${NC}: Task $task_id_from_branch is claimed by assignee:$task_assignee"

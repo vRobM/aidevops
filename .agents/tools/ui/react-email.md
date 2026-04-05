@@ -13,41 +13,24 @@ tools:
   context7_*: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # React Email - Email Templates with React
 
-<!-- AI-CONTEXT-START -->
-
-## Quick Reference
-
-- **Purpose**: Build responsive, cross-client email templates using React components
 - **Docs**: Use Context7 MCP for latest React Email documentation
 - **GitHub**: https://github.com/resend/react-email (15k+ stars, MIT)
-- **Website**: https://react.email
 - **Used by**: TurboStarter (`~/Git/turbostarter/core/packages/email/`)
-
-**Why React Email**:
-
-- Write emails as React components (familiar DX)
-- Preview emails in browser during development
-- Renders to cross-client compatible HTML
-- Built-in components handle email client quirks
-- Works with any email provider (Resend, SendGrid, Postmark, SES)
-
-<!-- AI-CONTEXT-END -->
 
 ## Quick Start
 
 ```bash
-# Add to existing project
 npm install @react-email/components react-email
-
-# Or create standalone email project
-npx create-email@latest
+# Or standalone: npx create-email@latest
+npx react-email dev  # Preview at http://localhost:3000 with live reload
 ```
 
 ## Components
-
-React Email provides pre-built components that render correctly across email clients:
 
 | Component | Purpose |
 |-----------|---------|
@@ -85,12 +68,7 @@ import {
   Tailwind,
 } from '@react-email/components';
 
-interface WelcomeEmailProps {
-  name: string;
-  actionUrl: string;
-}
-
-export default function WelcomeEmail({ name, actionUrl }: WelcomeEmailProps) {
+export default function WelcomeEmail({ name, actionUrl }: { name: string; actionUrl: string }) {
   return (
     <Html>
       <Head />
@@ -120,29 +98,14 @@ export default function WelcomeEmail({ name, actionUrl }: WelcomeEmailProps) {
 }
 ```
 
-## Development Preview
-
-```bash
-# Start preview server
-npx react-email dev
-
-# Opens browser at http://localhost:3000
-# Live reload as you edit templates
-```
-
 ## Rendering to HTML
 
 ```typescript
 import { render } from '@react-email/render';
 import WelcomeEmail from './emails/welcome';
 
-// Render to HTML string
 const html = await render(WelcomeEmail({ name: 'John', actionUrl: 'https://...' }));
-
-// Render to plain text (for text/plain fallback)
-const text = await render(WelcomeEmail({ name: 'John', actionUrl: 'https://...' }), {
-  plainText: true,
-});
+const text = await render(WelcomeEmail({ name: 'John', actionUrl: 'https://...' }), { plainText: true });
 ```
 
 ## Sending with Providers
@@ -154,7 +117,6 @@ import { Resend } from 'resend';
 import WelcomeEmail from './emails/welcome';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-
 await resend.emails.send({
   from: 'App <hello@example.com>',
   to: 'user@example.com',
@@ -171,14 +133,8 @@ import { render } from '@react-email/render';
 import WelcomeEmail from './emails/welcome';
 
 const html = await render(WelcomeEmail({ name: 'John', actionUrl: 'https://...' }));
-
 const transporter = nodemailer.createTransport({ /* SMTP config */ });
-await transporter.sendMail({
-  from: 'hello@example.com',
-  to: 'user@example.com',
-  subject: 'Welcome!',
-  html,
-});
+await transporter.sendMail({ from: 'hello@example.com', to: 'user@example.com', subject: 'Welcome!', html });
 ```
 
 ## Project Structure (TurboStarter Pattern)
@@ -210,7 +166,6 @@ packages/email/
 - **Keep emails simple** — complex layouts break in Outlook
 - **Always include plain text** fallback
 - **Use absolute URLs** for images (email clients don't load relative paths)
-- **Inline styles** are more reliable than CSS classes (React Email handles this)
 
 ## Related
 

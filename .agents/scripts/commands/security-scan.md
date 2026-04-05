@@ -4,83 +4,31 @@ agent: Build+
 mode: subagent
 ---
 
-Run a quick security scan focused on secrets detection and common vulnerabilities.
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
 
-Target: $ARGUMENTS
+Fast security check before commits. Target: $ARGUMENTS
 
-## Quick Reference
-
-- **Purpose**: Fast security check before commits
-- **Focus**: Secrets, credentials, obvious vulnerabilities
-- **Use case**: Pre-commit hook, quick validation
+Run every check below and report findings with severity and location.
 
 ## Process
 
-1. **Run secretlint** for credential detection:
+1. **Secretlint** — credential detection (API keys, private keys, hardcoded passwords for AWS, GCP, GitHub, OpenAI, etc.): `./.agents/scripts/secretlint-helper.sh scan`
+2. **Ferret** — AI CLI config security (prompt injection, jailbreaks): `./.agents/scripts/security-helper.sh ferret`
+3. **Quick code scan** — staged/diff analysis (command injection, SQL injection): `./.agents/scripts/security-helper.sh analyze staged`
+4. **MCP audit** — prompt injection in MCP tool descriptions: `./.agents/scripts/mcp-audit-helper.sh scan`
+5. **Secret hygiene + supply chain** — plaintext secrets (AWS, GCP, Azure, k8s, Docker, npm, PyPI, SSH), `.pth` IoCs, unpinned deps (`>=` in requirements.txt, `^` in package.json), and `uvx`/`npx` auto-download risk in MCP configs: `aidevops security scan` or `./.agents/scripts/secret-hygiene-helper.sh scan`
 
-   ```bash
-   # Check for exposed secrets
-   ./.agents/scripts/secretlint-helper.sh scan
-   ```
+For deeper analysis, use `/security-analysis` for taint analysis, git history scanning, and detailed remediation.
 
-2. **Run Ferret** for AI CLI config security:
+## CLI reference
 
-   ```bash
-   # Scan AI assistant configurations
-   ./.agents/scripts/security-helper.sh ferret
-   ```
-
-3. **Quick code scan** for obvious issues:
-
-   ```bash
-   # Fast analysis on staged/diff
-   ./.agents/scripts/security-helper.sh analyze staged
-   ```
-
-4. **MCP tool description audit** for prompt injection in MCP servers:
-
-   ```bash
-   # Scan all configured MCP tool descriptions
-   ./.agents/scripts/mcp-audit-helper.sh scan
-   ```
-
-5. **Report findings** with severity and location
-
-## What It Checks
-
-| Check | Tool | Description |
-|-------|------|-------------|
-| API Keys | Secretlint | AWS, GCP, GitHub, OpenAI, etc. |
-| Private Keys | Secretlint | RSA, SSH, PGP keys |
-| Passwords | Secretlint | Hardcoded credentials |
-| AI Configs | Ferret | Prompt injection, jailbreaks |
-| MCP Descriptions | MCP Audit | Injection in MCP tool descriptions |
-| Obvious Vulns | Security Helper | Command injection, SQL injection |
-
-## Output
-
-Quick summary:
-
-```text
-Security Scan Results
-=====================
-Secrets: 0 found
-AI Configs: 2 warnings (low severity)
-Code Issues: 1 medium severity
-
-Details:
-- [MEDIUM] src/api/handler.ts:45 - Potential command injection
-```
-
-## When to Use
-
-- Before committing code
-- Quick validation during development
-- CI/CD pre-merge check
-
-## For Deeper Analysis
-
-Use `/security-analysis` for comprehensive scanning with:
-- Full taint analysis
-- Git history scanning
-- Detailed remediation guidance
+- `aidevops security` — all checks: posture, hygiene, supply chain
+- `aidevops security posture` — interactive setup: gopass, gh, SSH, secretlint
+- `aidevops security status` — combined posture + hygiene summary
+- `aidevops security scan` — secret hygiene + supply chain only
+- `aidevops security scan-pth` — Python `.pth` audit only
+- `aidevops security scan-secrets` — plaintext secret locations only
+- `aidevops security scan-deps` — unpinned dependency check only
+- `aidevops security check` — per-repo security posture assessment
+- `aidevops security dismiss <id>` — dismiss advisory after action

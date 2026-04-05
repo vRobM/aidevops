@@ -12,135 +12,84 @@ tools:
   task: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Product Analytics - Data-Driven Iteration
 
 <!-- AI-CONTEXT-START -->
 
 ## Quick Reference
 
-- **Purpose**: Track usage, gather feedback, monitor crashes, and drive iteration
+- **Purpose**: Track usage, gather feedback, monitor crashes, drive iteration
 - **Tools**: PostHog (open-source), Sentry (crashes), RevenueCat (mobile revenue), Plausible (web)
-- **Principle**: Measure what matters for retention and revenue, not vanity metrics
-- **Applies to**: Mobile apps, browser extensions, desktop apps, web apps
+- **Principle**: Measure retention and revenue, not vanity metrics
+- **Applies to**: Mobile, browser extensions, desktop, web apps
 
 <!-- AI-CONTEXT-END -->
 
 ## Analytics Stack
 
-### Open-Source Preferred
+Open-source preferred. All self-hostable on Coolify — see `tools/deployment/coolify.md`.
 
-| Tool | Purpose | Self-Hosted | Cloud |
-|------|---------|-------------|-------|
-| **PostHog** | Product analytics, feature flags, session replay | Yes (Coolify) | Free tier |
-| **Sentry** | Crash reporting, error tracking, performance | Yes (Coolify) | Free tier |
-| **Plausible** | Privacy-friendly web analytics | Yes (Coolify) | Paid |
-| **Umami** | Simple web analytics | Yes (Coolify) | Free |
-
-### Platform-Specific
-
-| Tool | Purpose | Platform |
-|------|---------|----------|
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| **PostHog** | Product analytics, feature flags, session replay | Self-hosted or free cloud |
+| **Sentry** | Crash reporting, error tracking, performance | Self-hosted or free cloud |
+| **Plausible** | Privacy-friendly web analytics | Self-hosted or paid cloud |
+| **Umami** | Simple web analytics | Self-hosted or free cloud |
 | **RevenueCat** | Subscription analytics, cohort analysis | Mobile (iOS + Android) |
-| **App Store Connect Analytics** | Downloads, impressions, conversion | iOS |
-| **Google Play Console** | Install stats, ratings, crashes | Android |
-| **Chrome Web Store Dashboard** | Installs, uninstalls, ratings | Chrome extensions |
-| **Firefox Add-on Statistics** | Downloads, daily users | Firefox extensions |
-| **Expo Analytics** | OTA update adoption, crash rates | Expo apps |
 | **Firebase Analytics** | Event tracking, user properties | Mobile + web |
+| **Expo Analytics** | OTA update adoption, crash rates | Expo apps |
 
-### Self-Hosting on Coolify
-
-For privacy and cost control, self-host analytics on Coolify:
-
-```text
-PostHog -> Coolify one-click deploy -> your-analytics.yourdomain.com
-Sentry  -> Coolify one-click deploy -> your-sentry.yourdomain.com
-```
-
-See `tools/deployment/coolify.md` for deployment guidance.
+Platform dashboards: App Store Connect (iOS), Google Play Console (Android), Chrome Web Store, Firefox Add-on Statistics.
 
 ## Key Metrics
 
-### Retention (Most Important)
+### Retention (most important)
 
-| Metric | Target | Action if Below |
+| Metric | Target | Action if below |
 |--------|--------|-----------------|
-| Day 1 retention | > 40% | Fix onboarding |
-| Day 7 retention | > 20% | Improve core loop |
-| Day 30 retention | > 10% | Add engagement features |
+| Day 1 | > 40% | Fix onboarding |
+| Day 7 | > 20% | Improve core loop |
+| Day 30 | > 10% | Add engagement features |
 
 ### Engagement
 
-| Metric | What It Tells You |
-|--------|-------------------|
-| DAU/MAU ratio | How "sticky" the product is (> 20% is good) |
-| Session length | How much time users spend |
-| Sessions per day | How often users return |
-| Core action completion | Whether users do the main thing |
+- **DAU/MAU ratio** — stickiness (> 20% good)
+- **Session length / frequency** — time spent, return rate
+- **Core action completion** — users doing the main thing
 
 ### Revenue (if monetised)
 
-| Metric | What It Tells You |
-|--------|-------------------|
-| Trial-to-paid conversion | Paywall effectiveness |
-| Monthly recurring revenue (MRR) | Business health |
-| Average revenue per user (ARPU) | Monetisation efficiency |
-| Churn rate | How fast you lose subscribers |
-| Lifetime value (LTV) | Long-term user value |
+- **Trial-to-paid** — paywall effectiveness
+- **MRR / ARPU** — business health
+- **Churn / LTV** — subscriber loss, long-term value
 
-RevenueCat provides most revenue metrics out of the box for mobile. For web/desktop, use Stripe's dashboard or build custom analytics.
+RevenueCat provides most revenue metrics for mobile. Web/desktop: Stripe dashboard or custom analytics.
 
 ### Quality
 
 | Metric | Target | Tool |
 |--------|--------|------|
 | Crash-free rate | > 99.5% | Sentry |
-| Launch/load time | < 2 seconds | Performance monitoring |
+| Launch/load time | < 2s | Performance monitoring |
 | API error rate | < 1% | Sentry / custom |
 | Store rating | > 4.5 stars | Store dashboards |
 
-## User Feedback Loops
+## Feedback Loops
 
-### In-Product Feedback
+- **In-product**: Rating prompt after positive experience (not randomly). Low-friction feedback form in settings. Feature request upvoting. Bug reports with automatic context (device, OS, screen).
+- **Store reviews**: Monitor daily (automate with store APIs). Respond to negatives with solutions. Track common themes to prioritise features.
 
-- **Rating prompt**: After positive experience (completed streak, achieved goal), not randomly
-- **Feedback form**: Accessible from settings, low friction
-- **Feature requests**: Simple upvote system or feedback board
-- **Bug reports**: Easy reporting with automatic context (device, OS, screen/page)
+## Iteration Cycle
 
-### Store Reviews
-
-- Monitor reviews daily (automate with store APIs where available)
-- Respond to negative reviews with solutions
-- Track common themes in feedback
-- Use review insights to prioritise features
-
-### Analytics-Driven Iteration
-
-```text
-1. Identify metric below target
-2. Hypothesise cause (e.g., "users drop off at step 3 of onboarding")
-3. Design experiment (A/B test or feature change)
-4. Implement and measure
-5. Keep winner, iterate on losers
-```
+Identify metric below target → hypothesise cause → design experiment (A/B or feature change) → implement and measure → keep winner, iterate on losers.
 
 ## Implementation
 
-### Event Tracking Best Practices
-
-- Track actions, not screens (what users DO, not where they GO)
-- Use consistent naming: `verb_noun` (e.g., `complete_onboarding`, `start_workout`, `purchase_premium`)
-- Include relevant properties (duration, count, category)
-- Don't over-track — focus on events that inform decisions
-
-### Privacy Compliance
-
-- Respect App Tracking Transparency (iOS)
-- Provide opt-out for analytics
-- Don't collect PII unless necessary
-- Comply with GDPR/CCPA if applicable
-- Use privacy-friendly tools (PostHog, Plausible) when possible
+- **Event naming**: Track actions not screens — `verb_noun` (e.g., `complete_onboarding`, `purchase_premium`). Include relevant properties (duration, count, category). Don't over-track — focus on decision-informing events.
+- **Privacy**: Respect App Tracking Transparency (iOS). Provide analytics opt-out. Avoid PII unless necessary. GDPR/CCPA compliance. Prefer privacy-friendly tools (PostHog, Plausible).
 
 ## Related
 

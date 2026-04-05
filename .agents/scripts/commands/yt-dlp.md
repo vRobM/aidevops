@@ -4,6 +4,9 @@ agent: Build+
 mode: subagent
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 Download media from YouTube (or other supported sites) using yt-dlp.
 
 Arguments: $ARGUMENTS
@@ -28,10 +31,7 @@ Parse `$ARGUMENTS` to determine the mode and URL:
 /yt-dlp config                         → Write default config to ~/.config/yt-dlp/config
 ```
 
-If only a URL is provided (no subcommand), auto-detect:
-- Playlist URL (`playlist?list=`) → `playlist`
-- Channel URL (`/@`, `/c/`, `/channel/`) → `channel`
-- Otherwise → `video`
+URL-only auto-detect: `playlist?list=` → `playlist`; `/@`, `/c/`, `/channel/` → `channel`; otherwise → `video`.
 
 ### Step 2: Check Dependencies
 
@@ -39,35 +39,15 @@ If only a URL is provided (no subcommand), auto-detect:
 ~/.aidevops/agents/scripts/yt-dlp-helper.sh status
 ```
 
-If yt-dlp or ffmpeg is missing, offer to install:
+If missing, offer to install: `~/.aidevops/agents/scripts/yt-dlp-helper.sh install`
 
-```bash
-~/.aidevops/agents/scripts/yt-dlp-helper.sh install
-```
-
-### Step 3: Execute Download
-
-Run the appropriate helper command:
+### Step 3: Execute
 
 ```bash
 ~/.aidevops/agents/scripts/yt-dlp-helper.sh <command> <url> [options]
 ```
 
-### Step 4: Report Results
-
-Show the output directory and downloaded files:
-
-```text
-Downloaded to: ~/Downloads/yt-dlp-{type}-{name}-{timestamp}/
-Files:
-  - Video Title.mp4 (1.2GB)
-  - Video Title.en.srt
-  - Video Title.info.json
-```
-
 ## Options
-
-Pass through to the helper script:
 
 | Option | Description |
 |--------|-------------|
@@ -81,52 +61,12 @@ Pass through to the helper script:
 
 ## Examples
 
-**Download a video (auto-detect):**
-
 ```text
 /yt-dlp https://www.youtube.com/watch?v=dQw4w9WgXcQ
-```
-
-**Extract audio as MP3:**
-
-```text
-/yt-dlp audio https://www.youtube.com/watch?v=dQw4w9WgXcQ
-```
-
-**Download in 4K:**
-
-```text
-/yt-dlp video https://www.youtube.com/watch?v=dQw4w9WgXcQ --format 4k
-```
-
-**Download playlist as audio:**
-
-```text
 /yt-dlp audio https://www.youtube.com/playlist?list=PLxxx --format m4a
-```
-
-**Get transcript only:**
-
-```text
 /yt-dlp transcript https://www.youtube.com/watch?v=dQw4w9WgXcQ --sub-langs en,es
-```
-
-**Convert local video to audio:**
-
-```text
 /yt-dlp convert ~/Videos/lecture.mp4 --format flac
-```
-
-**Download private video with cookies:**
-
-```text
 /yt-dlp https://www.youtube.com/watch?v=PRIVATE --cookies
-```
-
-**Check what's installed:**
-
-```text
-/yt-dlp status
 ```
 
 ## Related

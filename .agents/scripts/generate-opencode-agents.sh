@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
+# =============================================================================
+# DEPRECATED: Use generate-runtime-config.sh instead (t1665.4)
+# This script is kept for one release cycle as a fallback.
+# setup-modules/config.sh will use generate-runtime-config.sh when available.
 # =============================================================================
 # Generate OpenCode Agent Configuration
 # =============================================================================
@@ -43,7 +49,7 @@ Add ~/.aidevops/agents/AGENTS.md to context for AI DevOps capabilities.
 2. If no Bash tool: Read `~/.aidevops/cache/session-greeting.txt` (cached by agents with Bash) and greet with: "Hi!\n\n{content of file}.\n\nWhat would you like to work on?". If the file doesn't exist, read `~/.aidevops/agents/VERSION` to get the `{version}` and greet with: "Hi!\n\nWe're running https://aidevops.sh v{version}.\n\nWhat would you like to work on?"
 3. Then respond to the user's actual message
 
-If you ran the update check script (step 1) and the output starts with `UPDATE_AVAILABLE|` (e.g., `UPDATE_AVAILABLE|2.41.1|2.41.2|OpenCode`), inform user: "Update available (current → latest). Run `aidevops update` in a terminal session to update, or type `!aidevops update` below and hit Enter." This check does not apply when falling back to reading the cache or VERSION file (step 2).
+If you ran the update check script (step 1) and the output starts with `UPDATE_AVAILABLE|` (e.g., `UPDATE_AVAILABLE|2.41.1|2.41.2|OpenCode`), inform user: "Update available (current → latest). Run `aidevops update` in a terminal session to update, or type `!aidevops update` below and hit Enter." If the output also contains a line `AUTO_UPDATE_ENABLED`, replace the manual update instruction with: "Auto-update is enabled and will apply this within ~10 minutes." This check does not apply when falling back to reading the cache or VERSION file (step 2).
 
 ## Pre-Edit Git Check
 
@@ -91,6 +97,26 @@ import os
 import glob
 import re
 import sys
+import tempfile
+
+def atomic_json_write(path, data, indent=2, trailing_newline=False):
+    """Write JSON atomically: tmp file + fsync + rename. Prevents truncation on crash."""
+    dir_name = os.path.dirname(path) or '.'
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp', prefix='.atomic-')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=indent)
+            if trailing_newline:
+                f.write('\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 config_path = os.path.expanduser("~/.config/opencode/opencode.json")
 agents_dir = os.path.expanduser("~/.aidevops/agents")
@@ -256,8 +282,8 @@ AGENT_MODEL_TIERS = {
 
 # Files to skip (not primary agents)
 # Includes SKIP_PRIMARY_AGENTS (demoted agents that are now subagents)
-# SKILL-SCAN-RESULTS.md is a generated report, not an agent
-SKIP_FILES = {"AGENTS.md", "README.md", "SKILL-SCAN-RESULTS.md"} | SKIP_PRIMARY_AGENTS
+# configs/SKILL-SCAN-RESULTS.md is a generated report, not an agent
+SKIP_FILES = {"AGENTS.md", "README.md", "configs/SKILL-SCAN-RESULTS.md"} | SKIP_PRIMARY_AGENTS
 
 def parse_frontmatter(filepath):
     """Parse YAML frontmatter from markdown file."""
@@ -321,6 +347,14 @@ def filename_to_display(filename):
         return DISPLAY_NAMES[name]
     # Convert kebab-case to Title-Case
     return "-".join(word.capitalize() for word in name.split("-"))
+
+
+def display_to_filename(display_name):
+    """Convert display name back to filename stem."""
+    reverse_map = {value: key for key, value in DISPLAY_NAMES.items()}
+    if display_name in reverse_map:
+        return reverse_map[display_name]
+    return display_name.lower()
 
 def get_agent_config(display_name, filename, subagents=None, model_tier=None):
     """Generate agent configuration.
@@ -399,10 +433,13 @@ for filepath in glob.glob(os.path.join(agents_dir, "*.md")):
 
 # Validate subagent references against actual files
 # Built-in agent types (general, explore) don't have .md files — skip them
-# Discovery must match the generator's rules: only nested dirs (not root),
-# skip AGENTS.md/README.md, skip *-skill.md files, skip loop-state dirs
+# Discovery must match runtime resolution semantics:
+# - only nested dirs (not root)
+# - only files with frontmatter mode: subagent
+# - skip AGENTS.md/README.md, skip *-skill.md files, skip loop-state dirs
 BUILTIN_SUBAGENTS = {"general", "explore"}
 all_subagent_files = set()
+all_subagent_paths = set()
 for root, _, files in os.walk(agents_dir):
     rel_root = os.path.relpath(root, agents_dir)
     if rel_root == "." or "loop-state" in rel_root.split(os.sep):
@@ -412,7 +449,41 @@ for root, _, files in os.walk(agents_dir):
             continue
         if f in {"AGENTS.md", "README.md"} or f.endswith("-skill.md"):
             continue
-        all_subagent_files.add(os.path.splitext(f)[0])
+        full_path = os.path.join(root, f)
+        fm = parse_frontmatter(full_path)
+        if fm.get("mode") != "subagent":
+            continue
+
+        stem = os.path.splitext(f)[0]
+        rel_path = os.path.relpath(full_path, agents_dir)
+        rel_stem = os.path.splitext(rel_path)[0].replace(os.sep, "/")
+        all_subagent_files.add(stem)
+        all_subagent_paths.add(rel_stem)
+
+
+def subagent_ref_exists(agent_name, subagent_ref):
+    # Exact basename match (legacy/global short refs)
+    if subagent_ref in all_subagent_files:
+        return True
+
+    # Exact path from agents root (e.g. workflows/plans)
+    if subagent_ref in all_subagent_paths:
+        return True
+
+    # Agent-local relative path (e.g. content -> production/writing)
+    agent_slug = display_to_filename(agent_name)
+    if f"{agent_slug}/{subagent_ref}" in all_subagent_paths:
+        return True
+
+    # Folder shorthand (e.g. distribution/youtube -> .../distribution/youtube/youtube.md)
+    if "/" in subagent_ref:
+        leaf = subagent_ref.rsplit("/", 1)[1]
+        if f"{agent_slug}/{subagent_ref}/{leaf}" in all_subagent_paths:
+            return True
+        if f"{subagent_ref}/{leaf}" in all_subagent_paths:
+            return True
+
+    return False
 
 missing_refs = []
 for display_name, agent_config in primary_agents.items():
@@ -424,7 +495,7 @@ for display_name, agent_config in primary_agents.items():
             continue
         if subagent_name in BUILTIN_SUBAGENTS:
             continue
-        if subagent_name not in all_subagent_files:
+        if not subagent_ref_exists(display_name, subagent_name):
             missing_refs.append((display_name, subagent_name))
 
 if missing_refs:
@@ -444,21 +515,26 @@ sorted_agents = dict(sorted(primary_agents.items(), key=lambda x: sort_key(x[0])
 # Build+ is now the unified coding agent (Plan+ and AI-DevOps consolidated)
 # =============================================================================
 
-sorted_agents["build"] = {"disable": True}
-sorted_agents["plan"] = {"disable": True}
-# Disable demoted agents (now subagents accessible via @mention)
-sorted_agents["Plan+"] = {"disable": True}
-sorted_agents["AI-DevOps"] = {"disable": True}
-sorted_agents["Browser-Extension-Dev"] = {"disable": True}
-sorted_agents["Mobile-App-Dev"] = {"disable": True}
-print("  Disabled default 'build' and 'plan' agents")
-print("  Disabled 'Plan+', 'AI-DevOps', 'Browser-Extension-Dev', 'Mobile-App-Dev' (available as @subagents)")
+# Guard: skip agent config if no primary agents discovered (avoids fatal OpenCode crash)
+if not primary_agents:
+    print("  WARNING: No primary agents discovered — skipping agent config update", file=sys.stderr)
+    print("  (agents directory may be empty or deploy incomplete)", file=sys.stderr)
+else:
+    sorted_agents["build"] = {"disable": True}
+    sorted_agents["plan"] = {"disable": True}
+    # Disable demoted agents (now subagents accessible via @mention)
+    sorted_agents["Plan+"] = {"disable": True}
+    sorted_agents["AI-DevOps"] = {"disable": True}
+    sorted_agents["Browser-Extension-Dev"] = {"disable": True}
+    sorted_agents["Mobile-App-Dev"] = {"disable": True}
+    print("  Disabled default 'build' and 'plan' agents")
+    print("  Disabled 'Plan+', 'AI-DevOps', 'Browser-Extension-Dev', 'Mobile-App-Dev' (available as @subagents)")
 
-config['agent'] = sorted_agents
+    config['agent'] = sorted_agents
 
-# Set Build+ as the default agent (first in Tab cycle, auto-selected on startup)
-config['default_agent'] = "Build+"
-print("  Set Build+ as default agent")
+    # Set Build+ as the default agent (first in Tab cycle, auto-selected on startup)
+    config['default_agent'] = "Build+"
+    print("  Set Build+ as default agent")
 
 # =============================================================================
 # INSTRUCTIONS - Auto-load aidevops AGENTS.md for full framework context
@@ -755,8 +831,7 @@ for tool_pattern in omo_tool_patterns:
         print(f"  Disabled {tool_pattern} tools globally (use matching subagent/CLI workflow)")
 
 if config_loaded:
-    with open(config_path, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=2)
+    atomic_json_write(config_path, config)
     print(f"  Updated {len(primary_agents)} primary agents in opencode.json")
 else:
     print("Error: config was not loaded successfully, skipping write", file=sys.stderr)
@@ -867,7 +942,7 @@ generate_subagent_stub() {
 	echo 1 # Return 1 for counting
 }
 
-export -f generate_subagent_stub
+export -f generate_subagent_stub 2>/dev/null || true
 export AGENTS_DIR
 export OPENCODE_AGENT_DIR
 

@@ -8,53 +8,52 @@ tools:
   grep: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # MCP Troubleshooting Quick Reference
 
 <!-- AI-CONTEXT-START -->
 
-## Quick Reference
+- **Scripts**: `mcp-diagnose.sh check-all`, `tool-version-check.sh`
+- **Primary cause**: version mismatch (outdated tool, changed MCP command)
+- **Config**: `~/.config/opencode/opencode.json`
+- **Dead schemas (t1682)**: MCP tools can remain listed after startup failure; treat that server as unavailable for the session
 
-- **Purpose**: Diagnose and fix MCP connection failures
-- **Scripts**: `mcp-diagnose.sh`, `tool-version-check.sh`
-- **Common cause**: Version mismatch (outdated tool with changed MCP command)
+## Errored Servers — Dead Tool Schemas (t1682)
+
+When an MCP server fails to start, its tool schemas can remain in the tool list. Calls then fail with `MCP error -32000: Connection closed`, wasting context tokens.
+
+```bash
+# Detect errored servers
+~/.aidevops/agents/scripts/mcp-diagnose.sh check-all
+
+# Disable persistently errored server in ~/.config/opencode/opencode.json
+{ "playwright": { "enabled": false } }
+# Restart runtime to reload tool list.
+```
+
+**Agent rule:** On `MCP error -32000`, `Connection closed`, `spawn ENOENT`, or similar startup failures, mark that server unavailable for the session and do not retry it. See `prompts/build.txt` "Errored MCP Server Guard".
 
 ## Common Errors
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| "Config file is invalid" | Unrecognized key in config | Remove unsupported keys (see below) |
+| "Config file is invalid" | Unsupported key (`workdir`, `cwd`, `env`) | Remove key; use `environment` instead of `env`; wrap `cwd` as `["/bin/bash", "-c", "cd /path && cmd"]` |
 | "Connection closed" | Wrong command or outdated version | Update tool, check command syntax |
 | "Command not found" | Tool not installed | `npm install -g {package}` |
 | "Permission denied" | Missing credentials | Check `~/.config/aidevops/credentials.sh` |
-| "Timeout" | Server not starting | Check Node.js version, run manually |
-| "unauthorized" | HTTP server instead of MCP | Use correct MCP command (not serve) |
-
-### Config Validation Errors
-
-If you see `Unrecognized key: "xxx"`, OpenCode doesn't support that config key.
-
-**Common unsupported keys**:
-
-- `workdir` - Not supported in OpenCode MCP config
-- `cwd` - Use shell wrapper instead: `["/bin/bash", "-c", "cd /path && command"]`
-- `env` - Use `environment` instead
-
-**Fix**: Edit `~/.config/opencode/opencode.json` and remove the unsupported key.
+| "Timeout" | Server not starting | Check Node.js version, run command manually |
+| "unauthorized" | HTTP server instead of MCP | Use correct MCP command (not `serve`) |
 
 ## Diagnostic Commands
 
 ```bash
-# Full diagnosis for specific MCP
-~/.aidevops/agents/scripts/mcp-diagnose.sh <mcp-name>
-
-# Check all tool versions
-~/.aidevops/agents/scripts/tool-version-check.sh
-
-# Update outdated tools
-~/.aidevops/agents/scripts/tool-version-check.sh --update
-
-# Verify MCP status in OpenCode
-opencode mcp list
+~/.aidevops/agents/scripts/mcp-diagnose.sh check-all   # scan all servers (t1682)
+~/.aidevops/agents/scripts/mcp-diagnose.sh <mcp-name>  # diagnose specific MCP
+~/.aidevops/agents/scripts/tool-version-check.sh        # check versions
+~/.aidevops/agents/scripts/tool-version-check.sh --update  # update outdated tools
+opencode mcp list                                        # verify MCP status
 ```
 
 <!-- AI-CONTEXT-END -->
@@ -63,83 +62,28 @@ opencode mcp list
 
 ### augment-context-engine
 
-| Issue | Solution |
-|-------|----------|
-| "unauthorized" | Run `auggie login` first |
-| Session expired | Re-run `auggie login` |
-
-**Correct command**: `["auggie", "--mcp"]`
+- `unauthorized` or expired session → run `auggie login`
+- Correct command: `["auggie", "--mcp"]`
 
 ### context7
 
-Context7 is a remote MCP - no local installation needed.
-
-**Correct config**:
+Remote MCP; no local installation needed.
 
 ```json
-{
-  "context7": {
-    "type": "remote",
-    "url": "https://mcp.context7.com/mcp",
-    "enabled": true
-  }
-}
+{ "context7": { "type": "remote", "url": "https://mcp.context7.com/mcp", "enabled": true } }
 ```
-
-## Diagnostic Workflow
-
-1. **Check MCP status**:
-
-   ```bash
-   opencode mcp list
-   ```
-
-2. **If "failed" or "Connection closed"**:
-
-   ```bash
-   ~/.aidevops/agents/scripts/mcp-diagnose.sh <mcp-name>
-   ```
-
-3. **Check for updates**:
-
-   ```bash
-   ~/.aidevops/agents/scripts/tool-version-check.sh
-   ```
-
-4. **Update if needed**:
-
-   ```bash
-   npm update -g <package>
-   ```
-
-5. **Re-verify**:
-
-   ```bash
-   opencode mcp list
-   ```
-
-## OpenCode Config Location
-
-- **Config file**: `~/.config/opencode/opencode.json`
-- **Tool shims**: `~/.config/opencode/tool/`
-- **Agent configs**: `~/.config/opencode/agent/`
 
 ## Manual MCP Testing
 
-Test MCP command directly (should output JSON-RPC):
+Run the configured MCP command directly. Expect JSON-RPC startup output, not an HTTP server banner:
 
 ```bash
-# augment
-auggie --mcp
-
-# Most MCPs
-<tool> serve
+auggie --mcp   # augment
+<configured MCP command>
 ```
 
-If it outputs HTTP server info instead of JSON-RPC, you're using the wrong command.
+## Related
 
-## Related Documentation
-
-- [add-new-mcp-to-aidevops.md](add-new-mcp-to-aidevops.md) - MCP setup workflow
-- [tools/opencode/opencode.md](../tools/opencode/opencode.md) - OpenCode configuration
-- [troubleshooting.md](troubleshooting.md) - General troubleshooting
+- [add-new-mcp-to-aidevops.md](add-new-mcp-to-aidevops.md) — MCP setup workflow
+- [tools/opencode/opencode.md](../tools/opencode/opencode.md) — OpenCode configuration
+- [troubleshooting.md](troubleshooting.md) — General troubleshooting

@@ -14,6 +14,9 @@ mcp:
   unstract: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Unstract - Document Processing
 
 <!-- AI-CONTEXT-START -->
@@ -22,96 +25,67 @@ mcp:
 
 - **Purpose**: Extract structured data from unstructured documents (PDFs, images, DOCX, etc.)
 - **MCP Server**: `unstract/mcp-server` (Docker) or `@unstract/mcp-server` (npx)
-- **Tool**: `unstract_tool` - submits files to Unstract API, polls for completion, returns structured JSON
+- **Tool**: `unstract_tool` — submit file to Unstract API, poll for completion, return structured JSON
 - **Credentials**: `UNSTRACT_API_KEY` + `API_BASE_URL` in `~/.config/aidevops/credentials.sh` (chmod 600)
 - **Docs**: https://docs.unstract.com/unstract/unstract_platform/mcp/unstract_platform_mcp_server/
 - **GitHub**: https://github.com/Zipstack/unstract
-
-**On-demand loading**: This MCP is disabled globally and enabled per-agent when document extraction is needed.
+- **Loading**: MCP disabled globally; enabled per-agent when document extraction needed
+- **Trigger keywords**: document, extract, parse, invoice, statement, PDF, OCR, unstructured
 
 <!-- AI-CONTEXT-END -->
 
-## What is Unstract?
-
-Unstract is a no-code LLM platform that structures unstructured documents. It provides:
-
-- **Prompt Studio**: Visual environment to define extraction schemas
-- **API Deployments**: Turn any document into JSON via REST API
-- **ETL Pipelines**: Batch process documents into databases
-- **MCP Server**: Integrate extraction into AI agent workflows
-
 ## Supported File Types
 
-| Category | Formats |
-|----------|---------|
-| Documents | PDF, DOCX, DOC, ODT, TXT, CSV, JSON |
-| Spreadsheets | XLSX, XLS, ODS |
-| Presentations | PPTX, PPT, ODP |
-| Images | PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP |
+PDF, DOCX, DOC, ODT, TXT, CSV, JSON, XLSX, XLS, ODS, PPTX, PPT, ODP, PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP
 
-## MCP Tool
+## MCP Tool: `unstract_tool`
 
-### `unstract_tool`
-
-Submits a file to the Unstract API, polls for completion, and returns structured extraction results.
-
-**Parameters**:
-- `file_path` (required): Path to the document to process
-- `include_metadata` (optional): Include extraction metadata in response
-- `include_metrics` (optional): Include processing metrics (tokens, cost)
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `file_path` | yes | Path to document |
+| `include_metadata` | no | Include extraction metadata |
+| `include_metrics` | no | Include processing metrics (tokens, cost) |
 
 **Example prompt**: "Process the document /tmp/invoice.pdf"
 
 ## Setup
 
-The MCP server is a thin client that connects to any Unstract API endpoint - cloud or self-hosted.
-
 ### Option A: Cloud (Quick Start)
 
 1. Sign up at https://unstract.com/start-for-free/ (14-day free trial)
-2. Create a Prompt Studio project and define your extraction schema
-3. Deploy as an API endpoint
-4. Copy the API key and deployment URL
+2. Create Prompt Studio project, define extraction schema, deploy as API endpoint
+3. Store credentials (preferred: `setup-local-api-keys.sh`; or manually in `credentials.sh`):
 
 ```bash
-# Add to ~/.config/aidevops/credentials.sh:
 export UNSTRACT_API_KEY="your_api_key_here"
 export API_BASE_URL="https://us-central.unstract.com/deployment/api/your-deployment-id/"
-chmod 600 ~/.config/aidevops/credentials.sh
 ```
 
-### Option B: Self-Hosted (Local) - Recommended
+### Option B: Self-Hosted (Recommended)
 
-Install and run the full Unstract platform locally (requires Docker, 8GB RAM):
+Requires Docker, 8GB RAM. Full data privacy — no documents leave your machine.
 
 ```bash
-# One-command install via aidevops helper:
 ~/.aidevops/agents/scripts/unstract-helper.sh install
-
-# Or via the MCP integrations setup:
-~/.aidevops/agents/scripts/setup-mcp-integrations.sh unstract
+# Or: ~/.aidevops/agents/scripts/setup-mcp-integrations.sh unstract
 ```
 
-This clones Unstract to `~/.aidevops/unstract/`, disables analytics, starts Docker Compose, and configures the MCP to point at your local instance.
+Clones to `~/.aidevops/unstract/`, disables analytics, starts Docker Compose. Visit http://frontend.unstract.localhost (login: unstract/unstract).
 
-Visit http://frontend.unstract.localhost (login: unstract/unstract)
+**Management:** `unstract-helper.sh start|stop|status|logs|configure-llm|uninstall`
 
-**Management commands:**
+Set credentials for local instance (preferred: `setup-local-api-keys.sh`; or manually):
 
 ```bash
-unstract-helper.sh start          # Start containers
-unstract-helper.sh stop           # Stop containers
-unstract-helper.sh status         # Check status
-unstract-helper.sh logs           # View logs
-unstract-helper.sh configure-llm  # Help adding LLM adapters
-unstract-helper.sh uninstall      # Remove everything
+export UNSTRACT_API_KEY="your_api_key_here"
+export API_BASE_URL="http://backend.unstract.localhost/deployment/api/your-id/"
 ```
 
-Self-hosted gives full data privacy - no documents leave your machine.
+MCP expects `API_BASE_URL` (not prefixed) — matches official Unstract spec.
 
-### Using Your Existing LLM API Keys
+### LLM Adapters (Self-Hosted)
 
-Unstract uses "Adapters" to connect to LLM providers. Your existing API keys from `~/.config/aidevops/credentials.sh` work directly - just add them as adapters in the Unstract UI (Settings > Adapters):
+Add API keys as adapters in Unstract UI (Settings > Adapters). Run `unstract-helper.sh configure-llm` to see configured keys.
 
 | Your Key | Unstract Adapter |
 |----------|-----------------|
@@ -122,43 +96,21 @@ Unstract uses "Adapters" to connect to LLM providers. Your existing API keys fro
 | AWS credentials | AWS Bedrock |
 | Ollama (local, no key) | Ollama (http://host.docker.internal:11434) |
 
-Run `unstract-helper.sh configure-llm` to see which keys you already have configured.
+For fully local/offline operation, use **Ollama** — no cloud API keys needed.
 
-For fully local/offline operation, use **Ollama** as the LLM adapter - no cloud API keys needed.
+### Runtime Configuration
 
-### 2. Store Credentials
-
-Whichever option you chose, ensure credentials are in `~/.config/aidevops/credentials.sh`:
-
-```bash
-export UNSTRACT_API_KEY="your_api_key_here"
-export API_BASE_URL="http://backend.unstract.localhost/deployment/api/your-id/"
-chmod 600 ~/.config/aidevops/credentials.sh
-```
-
-**Note**: The MCP expects `API_BASE_URL` (not prefixed). This matches the official Unstract spec.
-
-### 3. OpenCode Configuration (On-Demand)
-
-The MCP is configured in OpenCode but disabled globally. It loads on-demand when this subagent is invoked.
-
-See `configs/mcp-templates/unstract.json` for the configuration template.
-
-### 4. Claude Desktop Configuration (Docker)
+- **Claude Code / OpenCode**: See `configs/mcp-templates/unstract.json` (on-demand, disabled globally)
+- **Claude Desktop** (Docker):
 
 ```json
 {
   "mcpServers": {
     "unstract_tool": {
       "command": "/usr/local/bin/docker",
-      "args": [
-        "run", "-i", "--rm",
-        "-v", "/tmp:/tmp",
-        "-e", "UNSTRACT_API_KEY",
-        "-e", "API_BASE_URL",
-        "unstract/mcp-server",
-        "unstract"
-      ],
+      "args": ["run", "-i", "--rm", "-v", "/tmp:/tmp",
+               "-e", "UNSTRACT_API_KEY", "-e", "API_BASE_URL",
+               "unstract/mcp-server", "unstract"],
       "env": {
         "UNSTRACT_API_KEY": "",
         "API_BASE_URL": "https://us-central.unstract.com/deployment/api/.../"
@@ -170,33 +122,16 @@ See `configs/mcp-templates/unstract.json` for the configuration template.
 
 ## Use Cases
 
-- **Invoice processing**: Extract line items, totals, vendor info from invoices
-- **Bank statement parsing**: Structure transaction data from varied bank formats
-- **Insurance claims**: Extract claim details from forms and supporting documents
-- **KYC/onboarding**: Parse identity documents and application forms
+- **Invoice/statement processing**: Extract line items, totals, vendor/transaction data
+- **KYC/onboarding**: Parse identity documents, application forms, insurance claims
 - **Contract analysis**: Extract key terms, dates, parties from legal documents
 
-## Analytics / Telemetry
+## Telemetry
 
-The MCP server itself (`unstract/mcp-server` Docker image) contains **no analytics or telemetry code** - it is a clean API client that submits files and returns results.
-
-For **self-hosted** Unstract deployments, disable frontend analytics:
-
-```bash
-# In frontend/.env of your self-hosted Unstract instance:
-REACT_APP_ENABLE_POSTHOG=false
-```
-
-The **cloud API** (`us-central.unstract.com`) may collect server-side usage metrics as part of their platform. Use self-hosted if this is a concern.
-
-## Integration with aidevops
-
-This subagent is referenced by agents that need document extraction capabilities. The MCP loads only when document processing tasks are detected.
-
-**Trigger keywords**: document, extract, parse, invoice, statement, PDF, OCR, unstructured
+`unstract/mcp-server` Docker image: no telemetry. Self-hosted: set `REACT_APP_ENABLE_POSTHOG=false` in `frontend/.env`. Cloud API may collect server-side metrics — use self-hosted if concerned.
 
 ## Related
 
-- `tools/context/mcp-discovery.md` - On-demand MCP loading pattern
-- `.agents/aidevops/mcp-integrations.md` - All MCP integrations
-- `configs/mcp-templates/unstract.json` - OpenCode config template
+- `tools/context/mcp-discovery.md` — on-demand MCP loading pattern
+- `.agents/aidevops/mcp-integrations.md` — all MCP integrations
+- `configs/mcp-templates/unstract.json` — config template

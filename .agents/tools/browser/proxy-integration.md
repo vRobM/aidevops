@@ -8,11 +8,12 @@ tools:
   bash: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Proxy Integration
 
 <!-- AI-CONTEXT-START -->
-
-## Overview
 
 Network identity layer for anti-detect browser profiles. Supports residential, datacenter, SOCKS5, and VPN proxies with per-profile assignment, rotation, and health checking.
 
@@ -26,234 +27,117 @@ Network identity layer for anti-detect browser profiles. Supports residential, d
 | **Mobile** | Very low | Slow | $3-20/GB | Highest trust, mobile apps |
 | **SOCKS5 VPN** | Low | Fast | $5-10/mo | Privacy, geo-unblocking |
 
-## Provider Configuration
+## Credentials
 
-Proxy credentials stored in `~/.config/aidevops/credentials.sh`:
+Store in `~/.config/aidevops/credentials.sh` (600 perms):
 
 ```bash
-# Residential providers
-export DATAIMPULSE_USER="user"
+export DATAIMPULSE_USER="user"   # ~$1/GB residential
 export DATAIMPULSE_PASS="pass"
-export WEBSHARE_API_KEY="key"
-export BRIGHTDATA_ZONE="zone"
+export WEBSHARE_API_KEY="key"    # ~$6/GB residential
+export BRIGHTDATA_ZONE="zone"    # enterprise
 export BRIGHTDATA_PASS="pass"
-export OXYLABS_USER="user"
-export OXYLABS_PASS="pass"
-export SMARTPROXY_USER="user"
-export SMARTPROXY_PASS="pass"
-
-# VPN SOCKS5
 export IVPN_SOCKS_HOST="socks5://10.0.0.1:1080"
 export MULLVAD_SOCKS_HOST="socks5://10.0.0.1:1080"
 ```
 
-## Provider Formats
+## Provider URL Formats
 
-### DataImpulse (~$1/GB residential)
+**DataImpulse** — append modifiers to password with `_`:
 
-```bash
-# Rotating (new IP each request)
-http://user:pass@gw.dataimpulse.com:823
-
-# Sticky session (same IP for duration)
-http://user:pass_session-abc123@gw.dataimpulse.com:823
-
-# Country targeting
-http://user:pass_country-us@gw.dataimpulse.com:823
-
-# City targeting
-http://user:pass_country-us_city-newyork@gw.dataimpulse.com:823
+```
+http://user:pass@gw.dataimpulse.com:823                          # rotating
+http://user:pass_session-abc123@gw.dataimpulse.com:823           # sticky
+http://user:pass_country-us_city-newyork@gw.dataimpulse.com:823  # geo-targeted
 ```
 
-### WebShare (~$6/GB residential)
+**WebShare:**
 
-```bash
-# Direct proxy list (from API)
-http://user:pass@proxy1.webshare.io:80
-
-# Rotating endpoint
-http://user:pass@p.webshare.io:80
-
-# Country targeting
-http://user-country-us:pass@p.webshare.io:80
+```
+http://user:pass@p.webshare.io:80           # rotating
+http://user-country-us:pass@p.webshare.io:80  # country targeting
 ```
 
-### BrightData (enterprise)
+**BrightData:**
 
-```bash
-# Residential rotating
-http://user-zone-residential:pass@brd.superproxy.io:22225
-
-# Sticky session
-http://user-zone-residential-session-abc:pass@brd.superproxy.io:22225
-
-# Country
-http://user-zone-residential-country-us:pass@brd.superproxy.io:22225
+```
+http://user-zone-residential:pass@brd.superproxy.io:22225                  # rotating
+http://user-zone-residential-session-abc:pass@brd.superproxy.io:22225      # sticky
+http://user-zone-residential-country-us:pass@brd.superproxy.io:22225       # country
 ```
 
-### SOCKS5 VPN (IVPN/Mullvad)
+**SOCKS5 VPN** (IVPN/Mullvad — requires active subscription + WireGuard):
 
-```bash
-# IVPN (requires active subscription + WireGuard)
-socks5://10.0.0.1:1080
-
-# Mullvad (requires active subscription + WireGuard)
-socks5://10.0.0.1:1080
-
-# Generic SOCKS5
-socks5://user:pass@host:1080
+```
+socks5://10.0.0.1:1080              # provider local (same format for both)
+socks5://user:pass@host:1080        # generic with auth
 ```
 
-## Per-Profile Proxy Assignment
+## Per-Profile Assignment
 
 ```bash
-# Assign proxy to profile
-anti-detect-helper.sh profile update "my-account" \
-  --proxy "http://user:pass_session-fixed123@gw.dataimpulse.com:823"
-
-# Assign with geo-targeting
+# Sticky session + geo-targeting
 anti-detect-helper.sh profile update "my-account" \
   --proxy "http://user:pass_country-us_city-newyork@gw.dataimpulse.com:823"
 
-# Use rotating proxy (new IP each launch)
+# Rotating (new IP each launch) — scrapers
 anti-detect-helper.sh profile update "scraper" \
   --proxy "http://user:pass@gw.dataimpulse.com:823" \
   --proxy-mode rotating
-
-# Use sticky session (same IP for session duration)
-anti-detect-helper.sh profile update "my-account" \
-  --proxy "http://user:pass@gw.dataimpulse.com:823" \
-  --proxy-mode sticky
 ```
 
-## Proxy Health Checking
+## Health Checking
 
 ```bash
-# Check single proxy
-anti-detect-helper.sh proxy check "http://user:pass@host:port"
-
-# Check all profile proxies
-anti-detect-helper.sh proxy check-all
-
-# Output: IP, country, city, ISP, speed, anonymity level
+anti-detect-helper.sh proxy check "http://user:pass@host:port"  # single
+anti-detect-helper.sh proxy check-all  # all profiles; outputs IP/country/city/ISP/speed/anonymity
 ```
 
-### Health Check Script
+DNS leak prevention: Playwright handles automatically; Camoufox uses `network.proxy.socks_remote_dns = true` (default).
 
-```bash
-check_proxy() {
-    local proxy="$1"
-    local result
-    result=$(curl -s --proxy "$proxy" --max-time 10 "https://httpbin.org/ip" 2>/dev/null)
-    if [ $? -eq 0 ]; then
-        local ip
-        ip=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin)['origin'])" 2>/dev/null)
-        echo "OK: $ip"
-        return 0
-    else
-        echo "FAIL: Connection timeout"
-        return 1
-    fi
-}
-```
+## Rotation Strategies
 
-## Proxy Rotation Strategies
+| Strategy | Use Case |
+|----------|----------|
+| **Fixed** | Persistent accounts |
+| **Rotating** | Scraping (new IP each request) |
+| **Sticky session** | Login flows (same IP for N minutes) |
+| **Round-robin** | Load distribution across proxy list |
+| **Geo-targeted** | Match profile's target region |
+| **Failover** | Switch on error/block |
 
-| Strategy | Description | Use Case |
-|----------|-------------|----------|
-| **Fixed** | Same proxy always | Persistent accounts |
-| **Rotating** | New IP each request | Scraping |
-| **Sticky session** | Same IP for N minutes | Login flows |
-| **Round-robin** | Cycle through proxy list | Load distribution |
-| **Geo-targeted** | Match profile's target region | Regional accounts |
-| **Failover** | Switch on error/block | Reliability |
+`anti-detect-helper.sh profile update --proxy-mode [rotating|sticky|round-robin|failover]`. Sticky sessions default to 30m; override with `--session-duration`.
 
-### Rotation Configuration
+## Browser Engine Integration
 
-```json
-{
-  "strategy": "sticky",
-  "provider": "dataimpulse",
-  "session_duration": "30m",
-  "country": "us",
-  "city": "new-york",
-  "fallback_provider": "webshare",
-  "max_retries": 3,
-  "health_check_interval": "5m"
-}
-```
+Proxy config structure is identical across engines — only the wrapper differs:
 
-## Integration with Browser Engines
-
-### Playwright (Chromium)
+**Playwright (Chromium):**
 
 ```javascript
 const browser = await chromium.launch({
-  proxy: {
-    server: 'http://gw.dataimpulse.com:823',
-    username: 'user',
-    password: 'pass_country-us_session-abc123',
-  }
+  proxy: { server: 'http://gw.dataimpulse.com:823', username: 'user', password: 'pass_country-us_session-abc123' }
 });
 ```
 
-### Camoufox (Firefox)
+**Camoufox (Firefox):**
 
 ```python
-with Camoufox(
-    headless=True,
-    proxy={
-        "server": "http://gw.dataimpulse.com:823",
-        "username": "user",
-        "password": "pass_country-us",
-    },
-    geoip=True,  # Auto-match timezone/locale to proxy region
-) as browser:
-    ...
+with Camoufox(headless=True, proxy={"server": "...", "username": "user", "password": "pass_country-us"}, geoip=True) as browser:
+    ...  # geoip=True auto-matches timezone/locale to proxy region
 ```
 
-### Crawl4AI
+**Crawl4AI:**
 
 ```python
-browser_config = BrowserConfig(
-    proxy_config={
-        "server": "http://gw.dataimpulse.com:823",
-        "username": "user",
-        "password": "pass_country-us",
-    }
-)
+browser_config = BrowserConfig(proxy_config={"server": "...", "username": "user", "password": "pass_country-us"})
 ```
 
-## DNS Leak Prevention
+## Security
 
-```bash
-# Verify no DNS leaks through proxy
-anti-detect-helper.sh proxy dns-check "profile-name"
-
-# Forces DNS through proxy (not system resolver)
-# Playwright: handled automatically with proxy config
-# Camoufox: network.proxy.socks_remote_dns = true (default)
-```
-
-## Future Providers (Roadmap)
-
-Services to be added as subagents when needed:
-
-| Provider | Type | Pricing | Notes |
-|----------|------|---------|-------|
-| Oxylabs | Residential | ~$8/GB | Enterprise, large pools |
-| SmartProxy | Residential | ~$7/GB | Good geo coverage |
-| PacketStream | Residential | ~$1/GB | Budget option |
-| NordVPN | SOCKS5 | $4/mo | 5000+ servers |
-| ExpressVPN | SOCKS5 | $8/mo | Fast, many locations |
-| IPRoyal | Residential | ~$1.75/GB | Static residential available |
-
-## Security Notes
-
-- Never commit proxy credentials (stored in `credentials.sh` with 600 permissions)
+- Never commit proxy credentials — use `credentials.sh` (600 perms)
 - Use sticky sessions for login flows (avoid IP changes mid-session)
 - Match proxy geo to profile fingerprint (timezone, locale, geolocation)
-- Monitor proxy usage/costs via provider dashboards
-- Rotate proxies if blocked (don't retry same IP)
+- Rotate proxies if blocked — don't retry same IP
 
 <!-- AI-CONTEXT-END -->

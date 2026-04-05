@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # =============================================================================
 # Subagent Index Generator (t1040)
 # =============================================================================
@@ -61,7 +63,7 @@ generate_subagents_block() {
         sub(/\.md$/, "", filename)
 
         # Skip non-agent files
-        if (filename ~ /^(README|AGENTS|SKILL|SKILL-SCAN-RESULTS)$/) next
+        if (filename ~ /^(README|AGENTS|SKILL)$/) next
         if (filename ~ /-skill$/) next
 
         # Skip paths containing filtered directories

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # agent-test-helper.sh - Agent testing framework with isolated AI sessions
 #
 # Test agent changes by running prompts through isolated AI sessions and
@@ -6,7 +8,7 @@
 # comparison for agent modifications.
 #
 # Usage:
-#   agent-test-helper.sh run <test-file>           # Run a test suite
+#   agent-test-helper.sh run <test-file> [--json]  # Run a test suite
 #   agent-test-helper.sh run-one "prompt" [--expect "pattern"] [--agent name]
 #   agent-test-helper.sh compare <test-file>        # Compare current vs baseline
 #   agent-test-helper.sh baseline <test-file>       # Save current results as baseline
@@ -14,6 +16,20 @@
 #   agent-test-helper.sh create <name>              # Create test suite template
 #   agent-test-helper.sh results [test-name]        # Show recent results
 #   agent-test-helper.sh help                       # Show this help
+#
+# Metric output (--json flag):
+#   Outputs a JSON object to stdout with composite optimization metrics:
+#   {
+#     "pass_rate": 0.9,          # passed / total (0-1)
+#     "token_ratio": 1.0,        # avg_response_chars / baseline_chars (1.0 if no baseline)
+#     "composite_score": 0.63,   # pass_rate * (1 - 0.3 * token_ratio)
+#     "avg_response_chars": 1234,
+#     "baseline_chars": 1234,
+#     "passed": 9,
+#     "failed": 1,
+#     "total": 10
+#   }
+#   Used by autoresearch agent-optimization programs as the metric command.
 #
 # Test Suite Format (JSON):
 #   {
@@ -64,16 +80,16 @@ readonly REPO_SUITES_DIR="${SCRIPT_DIR}/../tests"
 
 # CLI detection - opencode is the only supported CLI
 detect_cli() {
-    local cli="${AGENT_TEST_CLI:-}"
-    if [[ -n "$cli" ]]; then
-        echo "$cli"
-        return 0
-    fi
-    if command -v opencode >/dev/null 2>&1; then
-        echo "opencode"
-    else
-        echo ""
-    fi
+	local cli="${AGENT_TEST_CLI:-}"
+	if [[ -n "$cli" ]]; then
+		echo "$cli"
+		return 0
+	fi
+	if command -v opencode >/dev/null 2>&1; then
+		echo "opencode"
+	else
+		echo ""
+	fi
 }
 
 AI_CLI="$(detect_cli)"
@@ -422,32 +438,18 @@ validate_response() {
 }
 
 #######################################
-# RUN command - execute a test suite
+# Print test suite header
+# Arguments:
+#   $1 - suite name
+#   $2 - suite description
+#   $3 - suite agent
+#   $4 - test count
 #######################################
-cmd_run() {
-	local test_file="$1"
-	ensure_dirs
-
-	# Resolve test file path
-	test_file=$(resolve_test_file "$test_file") || return 1
-
-	# Parse test suite
-	local suite
-	suite=$(cat "$test_file")
-
-	local suite_name
-	suite_name=$(echo "$suite" | jq -r '.name // "unnamed"')
-	local suite_desc
-	suite_desc=$(echo "$suite" | jq -r '.description // ""')
-	local suite_agent
-	suite_agent=$(echo "$suite" | jq -r '.agent // ""')
-	local suite_model
-	suite_model=$(echo "$suite" | jq -r '.model // ""')
-	local suite_timeout
-	suite_timeout=$(echo "$suite" | jq -r '.timeout // 120')
-
-	local test_count
-	test_count=$(echo "$suite" | jq '.tests | length')
+_cmd_run_print_header() {
+	local suite_name="$1"
+	local suite_desc="$2"
+	local suite_agent="$3"
+	local test_count="$4"
 
 	log_header "Test Suite: ${suite_name}"
 	if [[ -n "$suite_desc" ]]; then
@@ -458,114 +460,131 @@ cmd_run() {
 	log_info "Agent: ${suite_agent:-default}"
 	log_info "Tests: ${test_count}"
 	echo ""
+	return 0
+}
 
-	if [[ -z "$AI_CLI" ]]; then
-		log_fail "No AI CLI available. Install claude or opencode."
-		return 1
+#######################################
+# Execute a single test case and append result to JSON array
+# Arguments:
+#   $1  - test JSON object
+#   $2  - test index (0-based)
+#   $3  - test count (total)
+#   $4  - suite agent (default)
+#   $5  - suite model (default)
+#   $6  - suite timeout (default)
+#   $7  - current results JSON array
+# Outputs:
+#   Line 1: updated results JSON array
+#   Line 2: outcome — "pass", "fail", or "skip"
+#######################################
+_cmd_run_execute_test() {
+	local test_json="$1"
+	local i="$2"
+	local test_count="$3"
+	local suite_agent="$4"
+	local suite_model="$5"
+	local suite_timeout="$6"
+	local results="$7"
+
+	local test_id
+	test_id=$(echo "$test_json" | jq -r '.id // "test-'"$i"'"')
+	local test_prompt
+	test_prompt=$(echo "$test_json" | jq -r '.prompt')
+	local test_agent
+	test_agent=$(echo "$test_json" | jq -r '.agent // empty')
+	local test_model
+	test_model=$(echo "$test_json" | jq -r '.model // empty')
+	local test_timeout
+	test_timeout=$(echo "$test_json" | jq -r '.timeout // empty')
+	local test_skip
+	test_skip=$(echo "$test_json" | jq -r '.skip // false')
+
+	# Use suite defaults if test doesn't override
+	test_agent="${test_agent:-$suite_agent}"
+	test_model="${test_model:-$suite_model}"
+	test_timeout="${test_timeout:-$suite_timeout}"
+
+	echo -e "${BOLD}[$((i + 1))/${test_count}] ${test_id}${NC}"
+
+	if [[ "$test_skip" == "true" ]]; then
+		echo -e "  ${YELLOW}SKIPPED${NC}"
+		results=$(echo "$results" | jq --arg id "$test_id" --arg status "skipped" \
+			'. + [{"id": $id, "status": $status}]')
+		echo "$results"
+		echo "skip"
+		return 0
 	fi
 
-	local passed=0
-	local failed=0
-	local skipped=0
-	local start_time
-	start_time=$(date +%s)
+	echo -e "  ${DIM}Prompt: ${test_prompt:0:80}...${NC}"
 
-	# Results array for JSON output
-	local results="[]"
+	local test_start
+	test_start=$(date +%s)
+	local response=""
+	local run_status="pass"
 
-	# Run each test
-	local i=0
-	while [[ $i -lt $test_count ]]; do
-		local test_json
-		test_json=$(echo "$suite" | jq -c ".tests[$i]")
+	response=$(run_prompt "$test_prompt" "$test_agent" "$test_model" "$test_timeout" 2>&1) || {
+		run_status="error"
+	}
 
-		local test_id
-		test_id=$(echo "$test_json" | jq -r '.id // "test-'"$i"'"')
-		local test_prompt
-		test_prompt=$(echo "$test_json" | jq -r '.prompt')
-		local test_agent
-		test_agent=$(echo "$test_json" | jq -r '.agent // empty')
-		local test_model
-		test_model=$(echo "$test_json" | jq -r '.model // empty')
-		local test_timeout
-		test_timeout=$(echo "$test_json" | jq -r '.timeout // empty')
-		local test_skip
-		test_skip=$(echo "$test_json" | jq -r '.skip // false')
+	local test_end
+	test_end=$(date +%s)
+	local test_duration=$((test_end - test_start))
 
-		# Use suite defaults if test doesn't override
-		test_agent="${test_agent:-$suite_agent}"
-		test_model="${test_model:-$suite_model}"
-		test_timeout="${test_timeout:-$suite_timeout}"
-
-		echo -e "${BOLD}[$((i + 1))/${test_count}] ${test_id}${NC}"
-
-		if [[ "$test_skip" == "true" ]]; then
-			echo -e "  ${YELLOW}SKIPPED${NC}"
-			skipped=$((skipped + 1))
-			results=$(echo "$results" | jq --arg id "$test_id" --arg status "skipped" \
-				'. + [{"id": $id, "status": $status}]')
-			i=$((i + 1))
-			continue
-		fi
-
-		echo -e "  ${DIM}Prompt: ${test_prompt:0:80}...${NC}"
-
-		# Run the prompt
-		local test_start
-		test_start=$(date +%s)
-		local response=""
-		local run_status="pass"
-
-		response=$(run_prompt "$test_prompt" "$test_agent" "$test_model" "$test_timeout" 2>&1) || {
-			run_status="error"
-		}
-
-		local test_end
-		test_end=$(date +%s)
-		local test_duration=$((test_end - test_start))
-
-		# Check for timeout/error
-		if [[ "$run_status" == "error" ]] || echo "$response" | grep -q '^\[TIMEOUT'; then
-			log_fail "  Error/timeout after ${test_duration}s"
-			failed=$((failed + 1))
-			results=$(echo "$results" | jq \
-				--arg id "$test_id" \
-				--arg status "fail" \
-				--arg error "timeout_or_error" \
-				--argjson duration "$test_duration" \
-				'. + [{"id": $id, "status": $status, "error": $error, "duration": $duration}]')
-			i=$((i + 1))
-			continue
-		fi
-
-		# Validate response
-		if validate_response "$response" "$test_json"; then
-			log_pass "  Passed (${test_duration}s)"
-			passed=$((passed + 1))
-			run_status="pass"
-		else
-			failed=$((failed + 1))
-			run_status="fail"
-		fi
-
-		# Store result
-		local response_preview
-		response_preview=$(echo "$response" | head -c 500)
+	# Check for timeout/error
+	if [[ "$run_status" == "error" ]] || echo "$response" | grep -q '^\[TIMEOUT'; then
+		log_fail "  Error/timeout after ${test_duration}s"
 		results=$(echo "$results" | jq \
 			--arg id "$test_id" \
-			--arg status "$run_status" \
-			--arg response "$response_preview" \
+			--arg status "fail" \
+			--arg error "timeout_or_error" \
 			--argjson duration "$test_duration" \
-			'. + [{"id": $id, "status": $status, "response_preview": $response, "duration": $duration}]')
+			'. + [{"id": $id, "status": $status, "error": $error, "duration": $duration}]')
+		echo "$results"
+		echo "fail"
+		return 0
+	fi
 
-		i=$((i + 1))
-	done
+	# Validate response
+	if validate_response "$response" "$test_json"; then
+		log_pass "  Passed (${test_duration}s)"
+		run_status="pass"
+	else
+		run_status="fail"
+	fi
 
-	local end_time
-	end_time=$(date +%s)
-	local total_duration=$((end_time - start_time))
+	local response_preview
+	response_preview=$(echo "$response" | head -c 500)
+	local response_chars
+	response_chars=${#response}
+	results=$(echo "$results" | jq \
+		--arg id "$test_id" \
+		--arg status "$run_status" \
+		--arg response "$response_preview" \
+		--argjson duration "$test_duration" \
+		--argjson chars "$response_chars" \
+		'. + [{"id": $id, "status": $status, "response_preview": $response, "duration": $duration, "response_chars": $chars}]')
 
-	# Summary
+	echo "$results"
+	echo "$run_status"
+	return 0
+}
+
+#######################################
+# Print test run summary
+# Arguments:
+#   $1 - suite name
+#   $2 - passed count
+#   $3 - failed count
+#   $4 - skipped count
+#   $5 - total duration in seconds
+#######################################
+_cmd_run_print_summary() {
+	local suite_name="$1"
+	local passed="$2"
+	local failed="$3"
+	local skipped="$4"
+	local total_duration="$5"
+
 	echo ""
 	log_header "Results: ${suite_name}"
 	echo -e "  ${GREEN}Passed: ${passed}${NC}"
@@ -575,10 +594,40 @@ cmd_run() {
 	fi
 	echo -e "  Total time: ${total_duration}s"
 	echo ""
+	return 0
+}
 
-	# Save results
+#######################################
+# Save test results to JSON file
+# Arguments:
+#   $1  - suite name
+#   $2  - suite agent
+#   $3  - suite model
+#   $4  - passed count
+#   $5  - failed count
+#   $6  - skipped count
+#   $7  - total duration in seconds
+#   $8  - results JSON array
+# Outputs:
+#   Path to saved result file on stdout
+#######################################
+_cmd_run_save_results() {
+	local suite_name="$1"
+	local suite_agent="$2"
+	local suite_model="$3"
+	local passed="$4"
+	local failed="$5"
+	local skipped="$6"
+	local total_duration="$7"
+	local results="$8"
+
 	local result_file
 	result_file="${RESULTS_DIR}/${suite_name}-$(date +%Y%m%d-%H%M%S).json"
+
+	# Compute avg_response_chars from results array (exclude skipped/error entries)
+	local avg_chars
+	avg_chars=$(echo "$results" | jq '[.[] | select(.response_chars != null) | .response_chars] | if length > 0 then (add / length | floor) else 0 end')
+
 	jq -n \
 		--arg name "$suite_name" \
 		--arg cli "$AI_CLI" \
@@ -590,59 +639,258 @@ cmd_run() {
 		--argjson skipped "$skipped" \
 		--argjson duration "$total_duration" \
 		--argjson results "$results" \
+		--argjson avg_chars "$avg_chars" \
 		'{
             name: $name,
             cli: $cli,
             agent: $agent,
             model: $model,
             timestamp: $timestamp,
-            summary: {passed: $passed, failed: $failed, skipped: $skipped, duration: $duration},
+            summary: {passed: $passed, failed: $failed, skipped: $skipped, duration: $duration, avg_response_chars: $avg_chars},
             results: $results
         }' >"$result_file"
 
-	log_info "Results saved: $result_file"
+	echo "$result_file"
+	return 0
+}
 
-	# Sync test results to unified pattern tracker backbone (t1094)
-	# Records agent test outcomes as build-agent patterns for model routing.
+#######################################
+# Sync test results to pattern tracker backbone (t1094)
+# Arguments:
+#   $1 - suite name
+#   $2 - suite agent
+#   $3 - suite model
+#   $4 - passed count
+#   $5 - failed count
+#   $6 - total duration in seconds
+#######################################
+_cmd_run_sync_pattern_tracker() {
+	local suite_name="$1"
+	local suite_agent="$2"
+	local suite_model="$3"
+	local passed="$4"
+	local failed="$5"
+	local total_duration="$6"
+
 	local pt_helper="${SCRIPT_DIR}/archived/pattern-tracker-helper.sh"
-	if [[ -x "$pt_helper" ]]; then
-		local pt_outcome="success"
-		[[ "$failed" -gt 0 ]] && pt_outcome="failure"
+	[[ -x "$pt_helper" ]] || return 0
 
-		# Derive model tier from suite model string
-		local model_tier=""
-		case "${suite_model:-}" in
-		*haiku*) model_tier="haiku" ;;
-		*sonnet*) model_tier="sonnet" ;;
-		*opus*) model_tier="opus" ;;
-		*flash*) model_tier="flash" ;;
-		*pro*) model_tier="pro" ;;
+	local pt_outcome="success"
+	[[ "$failed" -gt 0 ]] && pt_outcome="failure"
+
+	local model_tier=""
+	case "${suite_model:-}" in
+	*haiku*) model_tier="haiku" ;;
+	*sonnet*) model_tier="sonnet" ;;
+	*opus*) model_tier="opus" ;;
+	*flash*) model_tier="flash" ;;
+	*pro*) model_tier="pro" ;;
+	esac
+
+	local pt_quality=""
+	if [[ "$failed" -eq 0 ]]; then
+		pt_quality="ci-pass-first-try"
+	elif [[ "$passed" -gt 0 ]]; then
+		pt_quality="ci-pass-after-fix"
+	else
+		pt_quality="needs-human"
+	fi
+
+	local pt_desc="Agent test suite '${suite_name}': ${passed} passed, ${failed} failed"
+	[[ -n "$suite_agent" ]] && pt_desc="${pt_desc} (agent: ${suite_agent})"
+
+	local pt_args=(
+		--outcome "$pt_outcome"
+		--task-type "testing"
+		--description "$pt_desc"
+		--quality "$pt_quality"
+		--duration "$total_duration"
+		--tags "agent-test,suite:${suite_name}"
+		--source "build-agent"
+	)
+	[[ -n "$model_tier" ]] && pt_args+=(--model "$model_tier")
+
+	"$pt_helper" score "${pt_args[@]}" >/dev/null 2>&1 || true
+	return 0
+}
+
+#######################################
+# Emit composite metric JSON for autoresearch integration
+# Arguments:
+#   $1 - suite name
+#   $2 - passed count
+#   $3 - failed count
+#   $4 - skipped count
+#   $5 - results JSON array
+# Outputs:
+#   JSON object to stdout with pass_rate, token_ratio, composite_score
+#######################################
+_cmd_run_emit_json_metrics() {
+	local suite_name="$1"
+	local passed="$2"
+	local failed="$3"
+	local skipped="$4"
+	local results="$5"
+
+	local total=$((passed + failed + skipped))
+	local active=$((passed + failed))
+
+	# pass_rate: passed / (passed + failed), ignoring skipped
+	local pass_rate
+	if [[ $active -gt 0 ]]; then
+		pass_rate=$(echo "scale=4; $passed / $active" | bc 2>/dev/null || echo "0")
+	else
+		pass_rate="0"
+	fi
+
+	# avg_response_chars from results
+	local avg_chars
+	avg_chars=$(echo "$results" | jq '[.[] | select(.response_chars != null) | .response_chars] | if length > 0 then (add / length | floor) else 0 end' 2>/dev/null || echo "0")
+
+	# baseline_chars: read from latest baseline file if it exists
+	local baseline_chars="$avg_chars"
+	local baseline_file="${BASELINES_DIR}/${suite_name}.json"
+	if [[ -f "$baseline_file" ]]; then
+		local b_chars
+		b_chars=$(jq '.summary.avg_response_chars // 0' "$baseline_file" 2>/dev/null || echo "0")
+		if [[ "$b_chars" -gt 0 ]]; then
+			baseline_chars="$b_chars"
+		fi
+	fi
+
+	# token_ratio: avg_chars / baseline_chars (1.0 if no baseline or baseline=0)
+	local token_ratio
+	if [[ "$baseline_chars" -gt 0 ]]; then
+		token_ratio=$(echo "scale=4; $avg_chars / $baseline_chars" | bc 2>/dev/null || echo "1.0")
+	else
+		token_ratio="1.0"
+	fi
+
+	# composite_score: pass_rate * (1 - 0.3 * token_ratio)
+	local composite_score
+	composite_score=$(echo "scale=4; $pass_rate * (1 - 0.3 * $token_ratio)" | bc 2>/dev/null || echo "0")
+
+	jq -n \
+		--argjson pass_rate "$pass_rate" \
+		--argjson token_ratio "$token_ratio" \
+		--argjson composite_score "$composite_score" \
+		--argjson avg_chars "$avg_chars" \
+		--argjson baseline_chars "$baseline_chars" \
+		--argjson passed "$passed" \
+		--argjson failed "$failed" \
+		--argjson total "$total" \
+		'{
+			pass_rate: $pass_rate,
+			token_ratio: $token_ratio,
+			composite_score: $composite_score,
+			avg_response_chars: $avg_chars,
+			baseline_chars: $baseline_chars,
+			passed: $passed,
+			failed: $failed,
+			total: $total
+		}'
+	return 0
+}
+
+#######################################
+# RUN command - execute a test suite
+# Arguments:
+#   $1 - test file path or name
+#   [--json] - emit composite metric JSON to stdout (for autoresearch integration)
+#######################################
+cmd_run() {
+	local test_file="$1"
+	shift || true
+	local json_output=false
+
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--json)
+			json_output=true
+			shift
+			;;
+		*)
+			shift
+			;;
+		esac
+	done
+
+	ensure_dirs
+
+	# Resolve test file path
+	test_file=$(resolve_test_file "$test_file") || return 1
+
+	# Parse test suite
+	local suite
+	suite=$(cat "$test_file")
+
+	local suite_name suite_desc suite_agent suite_model suite_timeout test_count
+	suite_name=$(echo "$suite" | jq -r '.name // "unnamed"')
+	suite_desc=$(echo "$suite" | jq -r '.description // ""')
+	suite_agent=$(echo "$suite" | jq -r '.agent // ""')
+	suite_model=$(echo "$suite" | jq -r '.model // ""')
+	suite_timeout=$(echo "$suite" | jq -r '.timeout // 120')
+	test_count=$(echo "$suite" | jq '.tests | length')
+
+	if [[ "$json_output" == "false" ]]; then
+		_cmd_run_print_header "$suite_name" "$suite_desc" "$suite_agent" "$test_count"
+	fi
+
+	if [[ -z "$AI_CLI" ]]; then
+		log_fail "No AI CLI available. Install claude or opencode."
+		return 1
+	fi
+
+	local passed=0 failed=0 skipped=0
+	local start_time
+	start_time=$(date +%s)
+	local results="[]"
+
+	local i=0
+	while [[ $i -lt $test_count ]]; do
+		local test_json
+		test_json=$(echo "$suite" | jq -c ".tests[$i]")
+
+		local exec_output outcome
+		exec_output=$(_cmd_run_execute_test \
+			"$test_json" "$i" "$test_count" \
+			"$suite_agent" "$suite_model" "$suite_timeout" \
+			"$results")
+		results=$(echo "$exec_output" | sed '$d')
+		outcome=$(echo "$exec_output" | tail -n 1)
+
+		case "$outcome" in
+		skip) skipped=$((skipped + 1)) ;;
+		pass) passed=$((passed + 1)) ;;
+		fail) failed=$((failed + 1)) ;;
 		esac
 
-		local pt_quality=""
-		if [[ "$failed" -eq 0 ]]; then
-			pt_quality="ci-pass-first-try"
-		elif [[ "$passed" -gt 0 ]]; then
-			pt_quality="ci-pass-after-fix"
-		else
-			pt_quality="needs-human"
-		fi
+		i=$((i + 1))
+	done
 
-		local pt_desc="Agent test suite '${suite_name}': ${passed} passed, ${failed} failed"
-		[[ -n "$suite_agent" ]] && pt_desc="${pt_desc} (agent: ${suite_agent})"
+	local end_time total_duration
+	end_time=$(date +%s)
+	total_duration=$((end_time - start_time))
 
-		local pt_args=(
-			--outcome "$pt_outcome"
-			--task-type "testing"
-			--description "$pt_desc"
-			--quality "$pt_quality"
-			--duration "$total_duration"
-			--tags "agent-test,suite:${suite_name}"
-			--source "build-agent"
-		)
-		[[ -n "$model_tier" ]] && pt_args+=(--model "$model_tier")
+	if [[ "$json_output" == "false" ]]; then
+		_cmd_run_print_summary "$suite_name" "$passed" "$failed" "$skipped" "$total_duration"
+	fi
 
-		"$pt_helper" score "${pt_args[@]}" >/dev/null 2>&1 || true
+	local result_file
+	result_file=$(_cmd_run_save_results \
+		"$suite_name" "$suite_agent" "$suite_model" \
+		"$passed" "$failed" "$skipped" "$total_duration" "$results")
+
+	if [[ "$json_output" == "false" ]]; then
+		log_info "Results saved: $result_file"
+	fi
+
+	_cmd_run_sync_pattern_tracker \
+		"$suite_name" "$suite_agent" "$suite_model" \
+		"$passed" "$failed" "$total_duration"
+
+	if [[ "$json_output" == "true" ]]; then
+		_cmd_run_emit_json_metrics "$suite_name" "$passed" "$failed" "$skipped" "$results"
 	fi
 
 	if [[ $failed -gt 0 ]]; then
@@ -1027,7 +1275,8 @@ USAGE:
   agent-test-helper.sh <command> [options]
 
 COMMANDS:
-  run <test-file>           Run a test suite (JSON file or name in suites/)
+  run <test-file> [--json]  Run a test suite (JSON file or name in suites/)
+    --json                    Emit composite metric JSON (for autoresearch integration)
   run-one "prompt"          Run a single prompt test
     --expect "pattern"        Expected pattern in response
     --agent <name>            Agent to use
@@ -1082,6 +1331,11 @@ EXAMPLES:
   # ... make agent changes ...
   agent-test-helper.sh compare my-tests     # Compare against baseline
 
+  # Autoresearch integration: emit composite metric JSON
+  agent-test-helper.sh baseline smoke-test  # Set baseline first
+  agent-test-helper.sh run smoke-test --json
+  # Output: {"pass_rate":1.0,"token_ratio":0.85,"composite_score":0.745,...}
+
   # View results
   agent-test-helper.sh results
 EOF
@@ -1098,10 +1352,10 @@ main() {
 	case "$command" in
 	run)
 		if [[ $# -lt 1 ]]; then
-			log_fail "Usage: agent-test-helper.sh run <test-file>"
+			log_fail "Usage: agent-test-helper.sh run <test-file> [--json]"
 			return 1
 		fi
-		cmd_run "$1"
+		cmd_run "$@"
 		;;
 	run-one)
 		cmd_run_one "$@"

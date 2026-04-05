@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 
 # Fallback Chain Helper v2.0 — Simplified model routing
 # Reads a JSON routing table and checks model availability.
@@ -88,6 +90,7 @@ is_model_available() {
 	anthropic) key_var="ANTHROPIC_API_KEY" ;;
 	openai) key_var="OPENAI_API_KEY" ;;
 	google) key_var="GOOGLE_API_KEY" ;;
+	openrouter) key_var="OPENROUTER_API_KEY" ;;
 	*) key_var="" ;;
 	esac
 

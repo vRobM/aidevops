@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2034,SC2155
 set -euo pipefail
 
@@ -132,15 +134,14 @@ EOF
 	return 0
 }
 
-# Get template JSON for a given style
-get_template_json() {
-	local template_name="$1"
-	local subject="$2"
-	local concept="$3"
+# =============================================================================
+# Template JSON Builders (one function per template)
+# =============================================================================
 
-	case "$template_name" in
-	high-contrast-face)
-		cat <<EOF
+_template_high_contrast_face() {
+	local subject="$1"
+	local concept="$2"
+	cat <<EOF
 {
   "subject": "$subject",
   "concept": "$concept",
@@ -181,9 +182,13 @@ get_template_json() {
   "negative": "blurry, low quality, distorted, watermark, text overlay, multiple faces, cluttered background"
 }
 EOF
-		;;
-	text-heavy)
-		cat <<EOF
+	return 0
+}
+
+_template_text_heavy() {
+	local subject="$1"
+	local concept="$2"
+	cat <<EOF
 {
   "subject": "$subject",
   "concept": "$concept",
@@ -224,9 +229,13 @@ EOF
   "negative": "cluttered, busy background, text overlay, watermark, low contrast"
 }
 EOF
-		;;
-	before-after)
-		cat <<EOF
+	return 0
+}
+
+_template_before_after() {
+	local subject="$1"
+	local concept="$2"
+	cat <<EOF
 {
   "subject": "$subject",
   "concept": "$concept - split screen comparison",
@@ -267,9 +276,13 @@ EOF
   "negative": "blurry, low quality, distorted, watermark, text overlay, cluttered"
 }
 EOF
-		;;
-	curiosity-gap)
-		cat <<EOF
+	return 0
+}
+
+_template_curiosity_gap() {
+	local subject="$1"
+	local concept="$2"
+	cat <<EOF
 {
   "subject": "$subject with surprised or shocked expression",
   "concept": "$concept",
@@ -310,9 +323,13 @@ EOF
   "negative": "blurry, low quality, neutral expression, boring, text overlay, watermark"
 }
 EOF
-		;;
-	product-showcase)
-		cat <<EOF
+	return 0
+}
+
+_template_product_showcase() {
+	local subject="$1"
+	local concept="$2"
+	cat <<EOF
 {
   "subject": "$subject centered on clean background",
   "concept": "$concept",
@@ -353,6 +370,30 @@ EOF
   "negative": "blurry, low quality, cluttered background, text overlay, watermark, multiple products"
 }
 EOF
+	return 0
+}
+
+# Dispatch to the appropriate template builder function
+get_template_json() {
+	local template_name="$1"
+	local subject="$2"
+	local concept="$3"
+
+	case "$template_name" in
+	high-contrast-face)
+		_template_high_contrast_face "$subject" "$concept"
+		;;
+	text-heavy)
+		_template_text_heavy "$subject" "$concept"
+		;;
+	before-after)
+		_template_before_after "$subject" "$concept"
+		;;
+	curiosity-gap)
+		_template_curiosity_gap "$subject" "$concept"
+		;;
+	product-showcase)
+		_template_product_showcase "$subject" "$concept"
 		;;
 	*)
 		print_error "Unknown template: $template_name"
@@ -367,45 +408,25 @@ EOF
 # Thumbnail Generation
 # =============================================================================
 
-cmd_generate() {
+# Generate variant prompt JSON files into output_dir
+_generate_variant_prompts() {
 	local topic="$1"
-	local count="${2:-5}"
-	local template="${3:-high-contrast-face}"
+	local count="$2"
+	local template="$3"
+	local output_dir="$4"
 
-	validate_required_param "topic" "$topic" || return 1
-	load_image_gen_credentials || return 1
-
-	if [[ -z "${HIGGSFIELD_API_KEY:-}" ]] || [[ -z "${HIGGSFIELD_SECRET:-}" ]]; then
-		print_error "Higgsfield credentials not configured. Run: aidevops secret set higgsfield-api-key"
-		return 1
-	fi
-
-	print_info "Generating $count thumbnail variants for: $topic"
-	print_info "Using template: $template"
-
-	# Create output directory
-	local output_dir="$THUMBNAIL_CACHE_DIR/$(date +%Y%m%d_%H%M%S)_${topic// /_}"
-	mkdir -p "$output_dir"
-
-	# Generate variants
 	for i in $(seq 1 "$count"); do
 		print_info "Generating variant $i/$count..."
 
-		# Create variant-specific subject and concept
 		local subject="Person discussing $topic"
 		local concept="YouTube thumbnail for video about $topic - variant $i"
 
-		# Get template JSON
 		local template_json
 		template_json=$(get_template_json "$template" "$subject" "$concept") || return 1
 
-		# Save template JSON
 		local json_file="$output_dir/variant_${i}_prompt.json"
 		echo "$template_json" >"$json_file"
 
-		# Call Nanobanana Pro API via Higgsfield
-		# Note: This is a placeholder - actual API integration would go here
-		# For now, we'll create a marker file
 		print_info "  → Prompt saved to: $json_file"
 		print_warning "  → API integration pending - use Higgsfield UI to generate from this JSON"
 
@@ -427,6 +448,30 @@ cmd_generate() {
 		# echo "$job_id" > "$output_dir/variant_${i}_job_id.txt"
 	done
 
+	return 0
+}
+
+cmd_generate() {
+	local topic="$1"
+	local count="${2:-5}"
+	local template="${3:-high-contrast-face}"
+
+	validate_required_param "topic" "$topic" || return 1
+	load_image_gen_credentials || return 1
+
+	if [[ -z "${HIGGSFIELD_API_KEY:-}" ]] || [[ -z "${HIGGSFIELD_SECRET:-}" ]]; then
+		print_error "Higgsfield credentials not configured. Run: aidevops secret set higgsfield-api-key"
+		return 1
+	fi
+
+	print_info "Generating $count thumbnail variants for: $topic"
+	print_info "Using template: $template"
+
+	local output_dir="$THUMBNAIL_CACHE_DIR/$(date +%Y%m%d_%H%M%S)_${topic// /_}"
+	mkdir -p "$output_dir"
+
+	_generate_variant_prompts "$topic" "$count" "$template" "$output_dir" || return 1
+
 	print_success "Generated $count thumbnail variant prompts in: $output_dir"
 	print_info "Next steps:"
 	print_info "  1. Use Higgsfield UI to generate images from the JSON prompts"
@@ -440,23 +485,16 @@ cmd_generate() {
 # Thumbnail Scoring
 # =============================================================================
 
-# Score a single thumbnail on quality criteria
-cmd_score() {
+# Print image dimensions and file size info
+_score_check_image_properties() {
 	local image_path="$1"
 
-	validate_required_param "image_path" "$image_path" || return 1
-	validate_file_exists "$image_path" "Thumbnail image" || return 1
-
-	print_info "Scoring thumbnail: $image_path"
-
-	# Check image dimensions
 	if command -v identify >/dev/null 2>&1; then
 		local dimensions
 		dimensions=$(identify -format "%wx%h" "$image_path" 2>/dev/null || echo "unknown")
 		print_info "Dimensions: $dimensions (recommended: ${THUMBNAIL_WIDTH}x${THUMBNAIL_HEIGHT})"
 	fi
 
-	# Check file size
 	local file_size_mb
 	if [[ "$OSTYPE" == "darwin"* ]]; then
 		file_size_mb=$(stat -f%z "$image_path" | awk '{print $1/1024/1024}')
@@ -465,7 +503,14 @@ cmd_score() {
 	fi
 	print_info "File size: ${file_size_mb}MB (max: ${THUMBNAIL_MAX_SIZE_MB}MB)"
 
-	# Manual scoring rubric
+	return 0
+}
+
+# Prompt user for each scoring criterion and echo space-separated scores
+# Output: "face_score contrast_score text_space_score brand_score emotion_score clarity_score"
+_score_collect_criteria() {
+	local face_score contrast_score text_space_score brand_score emotion_score clarity_score
+
 	echo ""
 	print_info "Score this thumbnail on the following criteria (1-10 scale):"
 	echo ""
@@ -498,9 +543,20 @@ cmd_score() {
 	echo "   - Is it readable at small sizes (320px)?"
 	read -r -p "   Score (1-10): " clarity_score
 
-	# Calculate weighted score
-	local weighted_score
-	weighted_score=$(awk "BEGIN {
+	echo "$face_score $contrast_score $text_space_score $brand_score $emotion_score $clarity_score"
+	return 0
+}
+
+# Compute weighted score from individual criteria scores
+_score_calculate_weighted() {
+	local face_score="$1"
+	local contrast_score="$2"
+	local text_space_score="$3"
+	local brand_score="$4"
+	local emotion_score="$5"
+	local clarity_score="$6"
+
+	awk "BEGIN {
         score = ($face_score * 0.25) + \
                 ($contrast_score * 0.20) + \
                 ($text_space_score * 0.15) + \
@@ -508,20 +564,29 @@ cmd_score() {
                 ($emotion_score * 0.15) + \
                 ($clarity_score * 0.10);
         printf \"%.2f\", score
-    }")
+    }"
+	return 0
+}
 
-	echo ""
-	print_info "Weighted Score: $weighted_score / 10"
+# Write score report file alongside the image
+_score_save_report() {
+	local image_path="$1"
+	local weighted_score="$2"
+	local face_score="$3"
+	local contrast_score="$4"
+	local text_space_score="$5"
+	local brand_score="$6"
+	local emotion_score="$7"
+	local clarity_score="$8"
 
-	if (($(echo "$weighted_score >= $MIN_SCORE_THRESHOLD" | bc -l))); then
-		print_success "✓ PASS - Score meets threshold (>= $MIN_SCORE_THRESHOLD)"
-	else
-		print_warning "✗ FAIL - Score below threshold (< $MIN_SCORE_THRESHOLD) - regenerate recommended"
-	fi
-
-	# Save score to file
 	local score_file="${image_path%.png}_score.txt"
 	score_file="${score_file%.jpg}_score.txt"
+
+	local status="FAIL"
+	if (($(echo "$weighted_score >= $MIN_SCORE_THRESHOLD" | bc -l))); then
+		status="PASS"
+	fi
+
 	cat >"$score_file" <<EOF
 Thumbnail Score Report
 ======================
@@ -538,10 +603,60 @@ Criteria Scores:
 
 Weighted Score: $weighted_score / 10
 Threshold: $MIN_SCORE_THRESHOLD
-Status: $(if (($(echo "$weighted_score >= $MIN_SCORE_THRESHOLD" | bc -l))); then echo "PASS"; else echo "FAIL"; fi)
+Status: $status
 EOF
 
 	print_info "Score saved to: $score_file"
+	return 0
+}
+
+# Calculate weighted score, display result, and save score report to file
+_score_calculate_and_save() {
+	local image_path="$1"
+	local face_score="$2"
+	local contrast_score="$3"
+	local text_space_score="$4"
+	local brand_score="$5"
+	local emotion_score="$6"
+	local clarity_score="$7"
+
+	local weighted_score
+	weighted_score=$(_score_calculate_weighted \
+		"$face_score" "$contrast_score" "$text_space_score" \
+		"$brand_score" "$emotion_score" "$clarity_score")
+
+	echo ""
+	print_info "Weighted Score: $weighted_score / 10"
+
+	if (($(echo "$weighted_score >= $MIN_SCORE_THRESHOLD" | bc -l))); then
+		print_success "✓ PASS - Score meets threshold (>= $MIN_SCORE_THRESHOLD)"
+	else
+		print_warning "✗ FAIL - Score below threshold (< $MIN_SCORE_THRESHOLD) - regenerate recommended"
+	fi
+
+	_score_save_report "$image_path" "$weighted_score" \
+		"$face_score" "$contrast_score" "$text_space_score" \
+		"$brand_score" "$emotion_score" "$clarity_score"
+
+	return 0
+}
+
+# Score a single thumbnail on quality criteria
+cmd_score() {
+	local image_path="$1"
+
+	validate_required_param "image_path" "$image_path" || return 1
+	validate_file_exists "$image_path" "Thumbnail image" || return 1
+
+	print_info "Scoring thumbnail: $image_path"
+
+	_score_check_image_properties "$image_path"
+
+	local criteria
+	criteria=$(_score_collect_criteria)
+
+	# shellcheck disable=SC2086
+	_score_calculate_and_save "$image_path" $criteria
 
 	return 0
 }
@@ -569,7 +684,6 @@ cmd_batch_score() {
 		echo ""
 		print_info "=== Image $image_count: $(basename "$image_file") ==="
 
-		# Check if already scored
 		local score_file="${image_file%.png}_score.txt"
 		score_file="${score_file%.jpg}_score.txt"
 
@@ -586,10 +700,8 @@ cmd_batch_score() {
 				print_warning "✗ FAIL"
 			fi
 		else
-			# Score interactively
 			cmd_score "$image_file"
 
-			# Check if passed
 			local new_score
 			new_score=$(grep "Weighted Score:" "$score_file" | awk '{print $3}')
 			if (($(echo "$new_score >= $MIN_SCORE_THRESHOLD" | bc -l))); then
@@ -634,6 +746,45 @@ cmd_upload() {
 	return 0
 }
 
+# Collect passing thumbnail paths from a scored directory into a named array ref
+_ab_collect_passing_thumbnails() {
+	local dir="$1"
+	local -n _passing_ref="$2"
+
+	while IFS= read -r -d '' score_file; do
+		local status
+		status=$(grep "Status:" "$score_file" | awk '{print $2}')
+
+		if [[ "$status" == "PASS" ]]; then
+			local image_file="${score_file%_score.txt}.png"
+			if [[ ! -f "$image_file" ]]; then
+				image_file="${score_file%_score.txt}.jpg"
+			fi
+
+			if [[ -f "$image_file" ]]; then
+				_passing_ref+=("$image_file")
+			fi
+		fi
+	done < <(find "$dir" -type f -name "*_score.txt" -print0)
+
+	return 0
+}
+
+# Upload all passing thumbnails with rate limiting
+_ab_upload_passing() {
+	local video_id="$1"
+	shift
+	local thumbnails=("$@")
+
+	for thumb in "${thumbnails[@]}"; do
+		print_info "Uploading: $(basename "$thumb")"
+		cmd_upload "$video_id" "$thumb"
+		sleep "$THUMBNAIL_RATE_LIMIT_DELAY"
+	done
+
+	return 0
+}
+
 cmd_ab_test() {
 	local video_id="$1"
 	local dir="$2"
@@ -649,25 +800,8 @@ cmd_ab_test() {
 	print_info "Setting up A/B test for video: $video_id"
 	print_info "Thumbnail directory: $dir"
 
-	# Find all passing thumbnails
 	local passing_thumbnails=()
-	while IFS= read -r -d '' score_file; do
-		local score
-		score=$(grep "Weighted Score:" "$score_file" | awk '{print $3}')
-		local status
-		status=$(grep "Status:" "$score_file" | awk '{print $2}')
-
-		if [[ "$status" == "PASS" ]]; then
-			local image_file="${score_file%_score.txt}.png"
-			if [[ ! -f "$image_file" ]]; then
-				image_file="${score_file%_score.txt}.jpg"
-			fi
-
-			if [[ -f "$image_file" ]]; then
-				passing_thumbnails+=("$image_file")
-			fi
-		fi
-	done < <(find "$dir" -type f -name "*_score.txt" -print0)
+	_ab_collect_passing_thumbnails "$dir" passing_thumbnails
 
 	if [[ ${#passing_thumbnails[@]} -eq 0 ]]; then
 		print_error "No passing thumbnails found in directory"
@@ -677,7 +811,6 @@ cmd_ab_test() {
 
 	print_success "Found ${#passing_thumbnails[@]} passing thumbnails"
 
-	# YouTube's A/B testing (via YouTube Studio)
 	print_info ""
 	print_info "YouTube A/B Testing Setup:"
 	print_info "1. Upload all passing thumbnails to YouTube Studio"
@@ -689,15 +822,10 @@ cmd_ab_test() {
 		print_info "  - $(basename "$thumb")"
 	done
 
-	# Optionally upload all thumbnails
 	echo ""
 	read -r -p "Upload all passing thumbnails now? (y/n): " upload_choice
 	if [[ "$upload_choice" == "y" ]]; then
-		for thumb in "${passing_thumbnails[@]}"; do
-			print_info "Uploading: $(basename "$thumb")"
-			cmd_upload "$video_id" "$thumb"
-			sleep "$THUMBNAIL_RATE_LIMIT_DELAY"
-		done
+		_ab_upload_passing "$video_id" "${passing_thumbnails[@]}"
 	fi
 
 	return 0

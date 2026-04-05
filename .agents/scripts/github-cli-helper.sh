@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2034
 
 # GitHub CLI Helper Script
@@ -311,9 +313,14 @@ create_issue() {
 		return 1
 	fi
 
+	# Append signature footer
+	local sig_footer=""
+	sig_footer=$("${SCRIPT_DIR}/gh-signature-helper.sh" footer --body "$body" 2>/dev/null || true)
+	body="${body}${sig_footer}"
+
 	print_info "Creating issue in $owner/$repo_name"
 
-	if gh issue create --repo "$owner/$repo_name" --title "$title" --body "$body"; then
+	if gh_create_issue --repo "$owner/$repo_name" --title "$title" --body "$body"; then
 		print_success "$SUCCESS_ISSUE_CREATED"
 	else
 		print_error "Failed to create issue"
@@ -405,6 +412,11 @@ create_pr() {
 		return 1
 	fi
 
+	# Append signature footer to PR body
+	local sig_footer=""
+	sig_footer=$("${SCRIPT_DIR}/gh-signature-helper.sh" footer --body "$body" 2>/dev/null || true)
+	body="${body}${sig_footer}"
+
 	print_info "Creating pull request in $owner/$repo_name"
 
 	local gh_args=("--repo" "$owner/$repo_name" "--title" "$title" "--base" "$base_branch")
@@ -415,7 +427,8 @@ create_pr() {
 		gh_args+=("--body" "$body")
 	fi
 
-	if gh pr create "${gh_args[@]}"; then
+	# Origin label injected by gh_create_pr wrapper (t1756)
+	if gh_create_pr "${gh_args[@]}"; then
 		print_success "$SUCCESS_PR_CREATED"
 	else
 		print_error "Failed to create pull request"

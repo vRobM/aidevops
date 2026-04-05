@@ -4,111 +4,47 @@ agent: Build+
 mode: subagent
 ---
 
-Import an external skill from GitHub, ClawdHub, or a raw URL, convert it to aidevops format, and register it for update tracking.
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
 
-URL/Repo: $ARGUMENTS
+Import an external skill, convert to aidevops format, and register for update tracking. URL/Repo: `$ARGUMENTS`
 
 ## Quick Reference
 
 ```bash
-# Import skill from GitHub (saved as *-skill.md)
-/add-skill dmmulroy/cloudflare-skill
-# → .agents/services/hosting/cloudflare-skill.md
-
-# Import specific skill from multi-skill repo
-/add-skill anthropics/skills/pdf
-# → .agents/tools/pdf-skill.md
-
-# Import from ClawdHub (shorthand)
-/add-skill clawdhub:caldav-calendar
-# → .agents/tools/productivity/caldav-calendar-skill.md
-
-# Import from ClawdHub (full URL)
-/add-skill https://clawdhub.com/Asleep123/caldav-calendar
-
-# Import with custom name
+# GitHub shorthand (saved as *-skill.md)
+/add-skill dmmulroy/cloudflare-skill        # → .agents/services/hosting/cloudflare-skill.md
+/add-skill anthropics/skills/pdf            # → .agents/tools/pdf-skill.md
 /add-skill vercel-labs/agent-skills --name vercel-deploy
-# → .agents/tools/deployment/vercel-deploy-skill.md
 
-# Import from a raw URL
-/add-skill https://convos.org/skill.md --name convos
-# → .agents/tools/convos-skill.md (category auto-detected from content)
+# ClawdHub
+/add-skill clawdhub:caldav-calendar         # → .agents/tools/productivity/caldav-calendar-skill.md
+/add-skill https://clawdhub.com/mSarheed/proxmox-full
 
-# List imported skills
+# Raw URL
+/add-skill https://convos.org/skill.md --name convos   # category auto-detected
+
+# Flags
+/add-skill dmmulroy/cloudflare-skill --force    # overwrite existing
+/add-skill dmmulroy/cloudflare-skill --dry-run  # simulate
+
+# Management
 /add-skill list
-
-# Check for updates
 /add-skill check-updates
+/add-skill remove <name>
 ```
 
 ## Naming Convention
 
-Imported skills are saved with a `-skill` suffix to distinguish them from native aidevops subagents:
-
-| Type | Example | Managed by |
-|------|---------|------------|
-| Native subagent | `playwright.md` | aidevops team, evolves with framework |
-| Imported skill | `playwright-skill.md` | Upstream repo, checked for updates |
-
-This means:
-- No name clashes between imports and native subagents
-- `*-skill.md` glob finds all imports instantly
-- `aidevops skill check` knows which files to check for upstream updates
-- Issues with imported skills → check upstream; issues with native → evolve locally
+`-skill` suffix marks imported skills: `playwright-skill.md` (imported, upstream-tracked) vs `playwright.md` (native). No name clashes; `*-skill.md` glob finds all imports; `aidevops skill check` knows which to update.
 
 ## Workflow
 
-### Step 1: Parse Input
-
-Determine if the input is:
-- A GitHub shorthand: `owner/repo` or `owner/repo/subpath`
-- A full GitHub URL: `https://github.com/owner/repo`
-- A ClawdHub shorthand: `clawdhub:<slug>`
-- A ClawdHub URL: `https://clawdhub.com/owner/slug`
-- A raw URL: `https://example.com/skill.md` (any non-GitHub, non-ClawdHub URL)
-- A command: `list`, `check-updates`, `remove <name>`
-
-### Step 2: Run Helper Script
-
-```bash
-~/.aidevops/agents/scripts/add-skill-helper.sh add "$ARGUMENTS"
-```
-
-For other commands:
-
-```bash
-# List all imported skills
-~/.aidevops/agents/scripts/add-skill-helper.sh list
-
-# Check for upstream updates
-~/.aidevops/agents/scripts/add-skill-helper.sh check-updates
-
-# Remove a skill
-~/.aidevops/agents/scripts/add-skill-helper.sh remove <name>
-```
-
-### Step 3: Handle Conflicts
-
-If the skill conflicts with existing files, the helper will prompt:
-
-1. **Merge** - Add new content to existing file (preserves both)
-2. **Replace** - Overwrite existing with imported skill
-3. **Separate** - Use a different name for the imported skill
-4. **Skip** - Cancel the import
-
-### Step 4: Security Scan
-
-Before registration, the skill is scanned using [Cisco Skill Scanner](https://github.com/cisco-ai-defense/skill-scanner) (if installed). CRITICAL/HIGH findings block the import. Use `--skip-security` to bypass (not recommended). The `--force` flag only controls file overwrite, not security bypass.
-
-Security scanning also runs on updates (`aidevops skill update`) -- pulling a new version triggers the same checks as the initial import.
-
-### Step 5: Post-Import
-
-After successful import:
-
-1. The skill is placed in `.agents/` following aidevops conventions
-2. Registered in `.agents/configs/skill-sources.json` for update tracking
-3. Run `./setup.sh` to create symlinks for other AI assistants
+1. **Parse input** — GitHub shorthand, full URL, ClawdHub shorthand/URL, raw URL, or management command.
+2. **Run helper:** `~/.aidevops/agents/scripts/add-skill-helper.sh add "$ARGUMENTS"` (other commands: `list | check-updates | remove <name>`)
+3. **Handle conflicts** (if file exists): Merge / Replace / Separate / Skip.
+4. **Security scan:** [Cisco Skill Scanner](https://github.com/cisco-ai-defense/skill-scanner) if installed — CRITICAL/HIGH blocks import. `--skip-security` bypasses; `--force` only controls file overwrite. Scan also runs on `aidevops skill update`.
+5. **Post-import:** Placed in `.agents/` per conventions → registered in `.agents/configs/skill-sources.json` → run `./setup.sh` to create symlinks.
 
 ## Supported Sources & Formats
 
@@ -116,7 +52,7 @@ After successful import:
 |--------|-----------|--------------|
 | GitHub | `owner/repo` or github.com URL | `git clone --depth 1` |
 | ClawdHub | `clawdhub:slug` or clawdhub.com URL | Playwright browser extraction |
-| Raw URL | Any `https://` URL (not GitHub/ClawdHub) | `curl` with SHA-256 content hash |
+| Raw URL | Any `https://` (not GitHub/ClawdHub) | `curl` with SHA-256 content hash |
 
 | Format | Detection | Conversion |
 |--------|-----------|------------|
@@ -125,73 +61,14 @@ After successful import:
 | .cursorrules | Cursor | Wrapped in markdown with frontmatter |
 | README.md | Generic | Copied as-is |
 
-## Examples
-
-```bash
-# Import Cloudflare skill (60+ products)
-/add-skill dmmulroy/cloudflare-skill
-
-# Import PDF manipulation skill from Anthropic
-/add-skill anthropics/skills/pdf
-
-# Import Vercel deployment skill
-/add-skill vercel-labs/agent-skills
-
-# Import from ClawdHub
-/add-skill clawdhub:caldav-calendar
-/add-skill clawdhub:proxmox-full
-/add-skill https://clawdhub.com/mSarheed/proxmox-full
-
-# Import from a raw URL
-/add-skill https://convos.org/skill.md --name convos
-/add-skill https://example.com/agents/my-skill.md
-
-# Import with force (overwrite existing)
-/add-skill dmmulroy/cloudflare-skill --force
-
-# Dry run (show what would happen)
-/add-skill dmmulroy/cloudflare-skill --dry-run
-```
-
 ## Update Tracking
 
-Imported skills are tracked in `.agents/configs/skill-sources.json`:
-
-```json
-{
-  "skills": [
-    {
-      "name": "cloudflare",
-      "upstream_url": "https://github.com/dmmulroy/cloudflare-skill",
-      "upstream_commit": "abc123...",
-      "local_path": ".agents/services/hosting/cloudflare-skill.md",
-      "format_detected": "skill-md",
-      "imported_at": "2026-01-21T00:00:00Z",
-      "last_checked": "2026-01-21T00:00:00Z",
-      "merge_strategy": "added"
-    },
-    {
-      "name": "convos",
-      "upstream_url": "https://convos.org/skill.md",
-      "upstream_commit": "",
-      "local_path": ".agents/tools/convos-skill.md",
-      "format_detected": "url",
-      "imported_at": "2026-03-07T00:00:00Z",
-      "last_checked": "2026-03-07T00:00:00Z",
-      "merge_strategy": "added",
-      "notes": "Imported from URL",
-      "upstream_hash": "a1b2c3d4e5f6..."
-    }
-  ]
-}
-```
-
-URL-sourced skills use SHA-256 content hashing for update detection instead of git commit comparison. Run `/add-skill check-updates` periodically to see if upstream skills have changed.
+Tracked in `.agents/configs/skill-sources.json`: `name`, `upstream_url`, `upstream_commit`/`upstream_hash`, `local_path`, `format_detected`, `imported_at`, `last_checked`, `merge_strategy`. URL sources use SHA-256 content hashing instead of git commit comparison. Run `/add-skill check-updates` periodically.
 
 ## Related
 
-- `tools/build-agent/add-skill.md` - Detailed conversion logic and merge strategies
-- `scripts/add-skill-helper.sh` - Main import implementation
-- `scripts/clawdhub-helper.sh` - ClawdHub browser-based fetcher (Playwright)
-- `scripts/skill-update-helper.sh` - Automated update checking
-- `scripts/generate-skills.sh` - SKILL.md stub generation for aidevops agents
+- `tools/build-agent/add-skill.md` — Detailed conversion logic and merge strategies
+- `scripts/add-skill-helper.sh` — Main import implementation
+- `scripts/clawdhub-helper.sh` — ClawdHub browser-based fetcher (Playwright)
+- `scripts/skill-update-helper.sh` — Automated update checking
+- `scripts/generate-skills.sh` — SKILL.md stub generation for aidevops agents

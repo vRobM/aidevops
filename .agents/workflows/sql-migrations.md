@@ -1,631 +1,146 @@
 ---
 mode: subagent
 ---
-# SQL Migrations Workflow
 
-<!-- AI-CONTEXT-START -->
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+# SQL Migrations Workflow
 
 ## Quick Reference
 
-- **Purpose**: Version-controlled database schema changes with rollback support
-- **Declarative**: `schemas/` - Define desired state, generate migrations automatically
-- **Migrations**: `migrations/` - Versioned, timestamped migration files
-- **Naming**: `{timestamp}_{action}_{target}.sql`
+- **Declarative**: `schemas/` — desired state, generate migrations automatically
+- **Migrations**: `migrations/` — versioned, timestamped `{YYYYMMDDHHMMSS}_{action}_{target}.sql` files
+- **Workflow**: Edit `schemas/` → generate migration via diff → review → apply locally → commit both
+- **Critical Rules**: NEVER modify pushed/deployed migrations (create NEW). ALWAYS generate via diff, review before committing, backup before production. ONE logical change per file.
 
-**Directory Structure**:
+## Directory Structure
 
-```text
-project/
-├── schemas/                    # Declarative schema files (source of truth)
-│   ├── 00_extensions.sql       # PostgreSQL extensions
-│   ├── 01_types.sql            # Custom types and enums
-│   ├── 10_users.sql            # Users table and related
-│   ├── 20_products.sql         # Products domain
-│   └── 30_orders.sql           # Orders domain
-├── migrations/                 # Generated migration files (auto-generated)
-│   ├── 20240502100843_create_users_table.sql
-│   └── 20240503142030_add_email_to_users.sql
-└── seeds/                      # Initial/test data
-    └── 001_base_data.sql
-```
+`schemas/` (source of truth, prefix: 00, 01, 10, 20...) | `migrations/` (generated) | `seeds/` (initial/test data) | `scripts/migrate.sh`, `scripts/rollback.sh`
 
-**Critical Rules**:
+## Tool Commands
 
-- NEVER modify migrations that have been pushed/deployed
-- ALWAYS generate migrations via diff (don't write manually)
-- ALWAYS review generated migrations before committing
-- ALWAYS backup before running migrations in production
-- ONE logical change per migration file
+| Tool | Generate | Apply | Rollback |
+|------|----------|-------|----------|
+| Supabase | `supabase db diff -f name` | `supabase migration up` | -- |
+| Drizzle | `npx drizzle-kit generate` | `npx drizzle-kit migrate` | -- |
+| Prisma | `npx prisma migrate dev --name name` | `npx prisma migrate deploy` | `npx prisma migrate resolve --rolled-back <name>` |
+| Atlas | `atlas migrate diff name --dir file://migrations --to file://schema.sql --dev-url docker://postgres/15` | `atlas migrate apply -u "postgres://..."` | -- |
+| migra | `migra $DB schemas/` | `psql $DB -f file.sql` | -- |
+| Flyway | N/A (imperative) | `flyway migrate` | `flyway undo` |
+| Laravel | `php artisan make:migration` | `php artisan migrate` | `php artisan migrate:rollback --step=1` |
+| Rails | `rails g migration` | `rails db:migrate` | `rails db:rollback STEP=1` |
 
-**Workflow**:
-
-1. Edit schema files in `schemas/`
-2. Run diff to generate migration
-3. Review generated migration
-4. Apply migration locally
-5. Commit both schema and migration files
-
-<!-- AI-CONTEXT-END -->
-
-## Declarative Schema Workflow (Recommended)
-
-The declarative approach lets you define your desired database state in `schemas/` files, then automatically generate migrations by diffing against the current database.
-
-### Why Declarative?
-
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Declarative** | Single source of truth, easy to review, auto-generated migrations | Requires diff tool, some edge cases |
-| **Imperative** | Full control, works everywhere | Scattered across files, manual, error-prone |
-
-### Schema File Organization
-
-Prefix files with numbers to control execution order (dependencies):
-
-```text
-schemas/
-├── 00_extensions.sql      # CREATE EXTENSION IF NOT EXISTS ...
-├── 01_types.sql           # Custom types, enums
-├── 10_users.sql           # Core user tables
-├── 11_user_profiles.sql   # User-related tables (depends on users)
-├── 20_products.sql        # Product domain
-├── 30_orders.sql          # Order domain (depends on users, products)
-└── 90_views.sql           # Views (depend on tables)
-```
-
-### Writing Schema Files
-
-Each file declares the desired state of related tables:
-
-```sql
--- schemas/10_users.sql
-
-CREATE TABLE IF NOT EXISTS "users" (
-    "id" SERIAL PRIMARY KEY,
-    "email" VARCHAR(255) NOT NULL UNIQUE,
-    "name" VARCHAR(255),
-    "created_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
--- Related function
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-```
-
-### Generating Migrations
-
-When you modify a schema file, generate a migration:
-
-```bash
-# Supabase CLI
-supabase db diff -f add_phone_to_users
-
-# Generic approach (using migra or similar)
-migra postgresql://localhost/mydb schemas/ > migrations/$(date +%Y%m%d%H%M%S)_add_phone_to_users.sql
-
-# Prisma (schema.prisma is declarative)
-npx prisma migrate dev --name add_phone_to_users
-```
-
-### Reviewing Generated Migrations
-
-**ALWAYS review before committing:**
-
-```sql
--- migrations/20240502101659_add_phone_to_users.sql
--- Generated by: supabase db diff
-
-ALTER TABLE "public"."users" ADD COLUMN "phone" VARCHAR(20);
-```
-
-Check for:
-
-- ✅ Only expected changes
-- ✅ No destructive operations (unless intended)
-- ✅ Correct column types and constraints
-- ⚠️ Data migrations may need manual adjustment
-
-### Applying Migrations
-
-```bash
-# Supabase
-supabase migration up
-
-# Generic
-psql $DATABASE_URL -f migrations/20240502101659_add_phone_to_users.sql
-
-# Prisma
-npx prisma migrate deploy
-```
-
-### Tool-Specific Commands
-
-| Tool | Schema Format | Diff Command | Apply Command |
-|------|---------------|--------------|---------------|
-| **Supabase** | SQL files | `supabase db diff -f name` | `supabase migration up` |
-| **Drizzle** | TypeScript | `npx drizzle-kit generate` | `npx drizzle-kit migrate` |
-| **Prisma** | Prisma Schema | `npx prisma migrate dev --name name` | `npx prisma migrate deploy` |
-| **Atlas** | HCL/SQL/ORM | `atlas migrate diff name` | `atlas migrate apply` |
-| **migra** | SQL files | `migra $DB schemas/` | `psql $DB -f file.sql` |
-| **Flyway** | SQL files | N/A (imperative) | `flyway migrate` |
-| **Laravel** | PHP | `php artisan make:migration` | `php artisan migrate` |
-| **Rails** | Ruby | `rails g migration` | `rails db:migrate` |
-
-### Drizzle ORM (TypeScript)
-
-Drizzle uses TypeScript schema files as the source of truth:
-
-```typescript
-// schemas/users.ts
-import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
-
-export const users = pgTable('users', {
-  id: serial('id').primaryKey(),
-  email: text('email').notNull().unique(),
-  name: text('name'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
-```
-
-```bash
-# Generate migration from schema changes
-npx drizzle-kit generate
-
-# Apply migrations
-npx drizzle-kit migrate
-
-# Push directly (dev only, no migration file)
-npx drizzle-kit push
-
-# Pull existing DB schema to TypeScript
-npx drizzle-kit pull
-```
-
-### Atlas (Universal)
-
-Atlas works with HCL, SQL, or any ORM schema:
-
-```bash
-# Declarative: apply schema directly
-atlas schema apply -u "postgres://..." --to file://schema.sql
-
-# Versioned: generate migration file
-atlas migrate diff add_users \
-  --dir "file://migrations" \
-  --to "file://schema.sql" \
-  --dev-url "docker://postgres/15"
-
-# Apply versioned migrations
-atlas migrate apply -u "postgres://..."
-```
-
-### Known Limitations
-
-Some entities require manual migrations (not captured by diff tools):
-
-- DML statements (`INSERT`, `UPDATE`, `DELETE`)
-- RLS policy modifications
-- View ownership and grants
-- Materialized views
-- Table partitions
-- Comments
-- Some ALTER POLICY statements
-
-For these, create manual migration files alongside generated ones.
+**Dev-only:** `drizzle-kit push`/`pull`, `prisma migrate reset`, `php artisan migrate:fresh --seed`. **Flyway naming:** `V1__create_users.sql`, `V2__add_email.sql`, `R__refresh_views.sql` (repeatable), `U2__undo_add_email.sql` (undo). **Manual migrations:** DML, RLS policies, view ownership/grants, materialized views, table partitions, comments, some `ALTER POLICY`.
 
 ## Naming Convention
 
-### Timestamp-Based (Recommended)
+| Prefix | Purpose | Prefix | Purpose |
+|--------|---------|--------|---------|
+| `create_` | New table | `rename_` | Rename column/table |
+| `add_` | New column/index | `alter_` | Modify column type |
+| `drop_` | Remove table/column | `seed_` / `backfill_` | Initial/migrated data |
 
-```text
-{YYYYMMDDHHMMSS}_{action}_{target}_{details}.sql
+Example: `20240502100843_create_users_table.sql`. Avoid: `migration_1.sql`, `fix_stuff.sql`.
 
-Examples:
-20240502100843_create_users_table.sql
-20240502101659_add_email_to_users.sql
-20240503142030_drop_legacy_sessions_table.sql
-20240504083015_add_index_email_unique_to_users.sql
-20240505091200_rename_name_to_full_name_in_users.sql
-```text
+## Migration File Structure
 
-### Action Prefixes
-
-| Prefix | Purpose | Example |
-|--------|---------|---------|
-| `create_` | New table | `create_users_table.sql` |
-| `add_` | New column/index | `add_email_to_users.sql` |
-| `drop_` | Remove table/column | `drop_legacy_table.sql` |
-| `rename_` | Rename column/table | `rename_name_to_full_name_in_users.sql` |
-| `alter_` | Modify column type | `alter_price_to_decimal_in_products.sql` |
-| `seed_` | Initial data | `seed_default_roles.sql` |
-| `backfill_` | Data migration | `backfill_user_status.sql` |
-
-### Bad Names to Avoid
-
-```text
-migration_1.sql          # Not descriptive
-fix_stuff.sql            # Vague
-20240502_changes.sql     # No specificity
-update_db.sql            # Meaningless
-```text
-
-## File Structure
-
-### Up/Down Pattern (Required)
-
-Every migration MUST have both up and down sections:
+**Up/Down pattern (required):**
 
 ```sql
 -- migrations/20240502100843_create_users_table.sql
-
 -- ====== UP ======
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
-    name VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
 CREATE INDEX idx_users_email ON users(email);
-
 -- ====== DOWN ======
 DROP INDEX IF EXISTS idx_users_email;
 DROP TABLE IF EXISTS users;
-```text
+```
 
-### Idempotent Migrations (Preferred)
-
-Write migrations that can run multiple times safely:
+**Idempotent column addition (PostgreSQL):**
 
 ```sql
--- PostgreSQL
-CREATE TABLE IF NOT EXISTS users (...);
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
--- Column addition (PostgreSQL)
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'users' AND column_name = 'phone'
-    ) THEN
-        ALTER TABLE users ADD COLUMN phone VARCHAR(20);
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_name='users' AND column_name='phone')
+    THEN ALTER TABLE users ADD COLUMN phone VARCHAR(20);
     END IF;
 END $$;
+```
 
--- MySQL
-CREATE TABLE IF NOT EXISTS users (...);
--- MySQL doesn't support IF NOT EXISTS for indexes, use procedures
-```text
-
-## Directory Structure
-
-```text
-project/
-├── migrations/
-│   ├── 20240502100843_create_users_table.sql
-│   ├── 20240502101659_add_email_to_users.sql
-│   └── 20240503142030_create_products_table.sql
-├── seeds/
-│   ├── 001_base_data.sql           # Required reference data
-│   └── 002_test_data.sql           # Development/test data
-└── scripts/
-    ├── migrate.sh                   # Run pending migrations
-    └── rollback.sh                  # Rollback last migration
-```text
-
-## Schema vs Data Migrations
-
-**Keep them separate:**
+**Separate schema and data migrations** — schema is fast/reversible, data may be slow/irreversible:
 
 ```sql
--- V6__add_status_column.sql (Schema - fast, reversible)
+-- V6__add_status_column.sql (Schema)
 ALTER TABLE orders ADD COLUMN status VARCHAR(20) DEFAULT 'pending';
+-- V7__backfill_order_status.sql (Data)
+UPDATE orders SET status = CASE WHEN shipped_at IS NOT NULL THEN 'completed' ELSE 'pending' END;
+```
 
--- V7__backfill_order_status.sql (Data - slow, may be irreversible)
-UPDATE orders SET status = 'completed' WHERE shipped_at IS NOT NULL;
-UPDATE orders SET status = 'pending' WHERE shipped_at IS NULL;
-```text
+## Rollback and Safety
 
-## Rollback Strategies
+| Operation | Rollback | Notes |
+|-----------|----------|-------|
+| `CREATE TABLE/INDEX/CONSTRAINT` | `DROP` equivalent | Safe |
+| `ADD COLUMN` | `DROP COLUMN` | Safe |
+| `DROP TABLE/COLUMN` | **Irreversible** | Backup first, or rename instead |
+| `TRUNCATE` | **Irreversible** | Never use in migrations |
+| Data `UPDATE` | **Irreversible** | Store originals in backup table |
 
-### Reversible Operations
-
-| Operation | Rollback |
-|-----------|----------|
-| `CREATE TABLE` | `DROP TABLE` |
-| `ADD COLUMN` | `DROP COLUMN` |
-| `CREATE INDEX` | `DROP INDEX` |
-| `ADD CONSTRAINT` | `DROP CONSTRAINT` |
-
-### Irreversible Operations
-
-| Operation | Why | Mitigation |
-|-----------|-----|------------|
-| `DROP TABLE` | Data lost | Backup first, or rename instead |
-| `DROP COLUMN` | Data lost | Backup column data first |
-| `TRUNCATE` | Data lost | Never use in migrations |
-| Data `UPDATE` | Original values lost | Store originals in backup table |
-
-### Marking Irreversible Migrations
-
-```sql
--- ====== DOWN ======
--- IRREVERSIBLE: This migration cannot be rolled back.
--- Data was permanently deleted. Restore from backup if needed.
-SELECT 'This migration is irreversible' AS warning;
--- Or raise an error:
--- RAISE EXCEPTION 'Cannot rollback: data was deleted';
-```text
+Mark irreversible DOWN sections: `-- IRREVERSIBLE: restore from backup if needed.` Recovery: `pg_dump`/`pg_restore` (PostgreSQL), `mysqldump` (MySQL).
 
 ## Production Safety
 
-### Expand-Contract Pattern
-
-For risky changes (rename column, change type), use three phases:
-
-```sql
--- Phase 1: EXPAND (add new, keep old)
--- 20240601_add_email_new_to_users.sql
-ALTER TABLE users ADD COLUMN email_new VARCHAR(255);
-UPDATE users SET email_new = email;
-
--- Phase 2: APPLICATION UPDATE
--- Deploy code that writes to BOTH columns, reads from new
-
--- Phase 3: CONTRACT (remove old)
--- 20240615_drop_old_email_from_users.sql
-ALTER TABLE users DROP COLUMN email;
-ALTER TABLE users RENAME COLUMN email_new TO email;
-```text
-
-### Safe Operations Checklist
-
 | Operation | Safe? | Strategy |
 |-----------|-------|----------|
-| Add nullable column | ✅ | Direct |
-| Add NOT NULL column | ⚠️ | Add nullable → backfill → add constraint |
-| Drop column | ⚠️ | Remove from code first → wait → drop |
-| Rename column | ⚠️ | Expand-contract pattern |
-| Add index | ⚠️ | Use `CONCURRENTLY` (PostgreSQL) |
-| Change column type | ⚠️ | Create new column → migrate → drop old |
+| Add nullable column | Yes | Direct |
+| Add NOT NULL column | Caution | Add nullable → backfill → add constraint |
+| Drop column | Caution | Remove from code first → wait → drop |
+| Rename column | Caution | Expand-contract pattern |
+| Add index | Caution | `CREATE INDEX CONCURRENTLY` (PostgreSQL) |
+| Change column type | Caution | New column → migrate data → drop old |
 
-### Concurrent Index Creation (PostgreSQL)
+**Expand-contract:** EXPAND — add new column, copy data, deploy code writing both/reading new. CONTRACT — drop old column, rename new.
 
-```sql
--- ✅ Safe: Non-blocking
-CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+## Git and CI/CD
 
--- ⚠️ Blocks writes during creation
-CREATE INDEX idx_users_email ON users(email);
-```text
+**Pre-push:** UP and DOWN present; DOWN reverses UP; tested locally (up → down → up); no modifications to pushed migrations; timestamp current (regenerate on rebase). Review: only expected changes, no destructive ops, correct types/constraints.
 
-## Git Workflow Integration
+**Team rules:** Pull before creating. Timestamps not sequential numbers. One migration per PR. Rebase carefully — regenerate timestamps for conflicts. Commit style: `feat(db): add user_preferences table`, `fix(db): correct FK on orders`, `chore(db): backfill user status`.
 
-### Branch Naming
+**CI/CD:** Trigger on `push` to `main` with `paths: ['migrations/**']`. Steps: backup → migrate → verify. Most tools auto-create a tracking table (e.g., `flyway_schema_history`). Prefer managed tools — they handle ordering, locking, and state tracking. Example workflow: `on: push(main, migrations/**) → pg_dump → flyway migrate → psql SELECT 1`.
 
-When creating migrations, use appropriate branch type:
+## Framework-Agnostic Runner
+
+When no migration tool is available, gate execution on a tracking table. Properties: idempotent (`WHERE NOT EXISTS`), ordered (lexicographic glob), auditable (`schema_migrations`), injection-safe (`psql -v` + `:'name'`), concurrent-safe (`pg_advisory_xact_lock`), empty-dir safe (`compgen -G`), `-- no-tx` convention for `CREATE INDEX CONCURRENTLY`.
 
 ```bash
-# Schema changes
-git checkout -b feature/add-user-preferences-table
-
-# Bug fixes to schema
-git checkout -b bugfix/fix-orders-foreign-key
-
-# Data migrations
-git checkout -b chore/backfill-user-status
-```text
-
-### Commit Messages
-
-```bash
-# Schema migrations
-git commit -m "feat(db): add user_preferences table with indexes"
-git commit -m "feat(db): add email column to users table"
-
-# Data migrations
-git commit -m "chore(db): backfill user status from legacy field"
-
-# Fixes
-git commit -m "fix(db): correct foreign key constraint on orders"
-```text
-
-### Pre-Push Checklist
-
-Before pushing migration files:
-
-1. ✅ Migration has both UP and DOWN sections
-2. ✅ DOWN section actually reverses the UP changes
-3. ✅ Tested locally (run up, run down, run up again)
-4. ✅ No modifications to already-pushed migrations
-5. ✅ Timestamp is current (regenerate if rebasing)
-
-## Team Collaboration
-
-### Avoiding Conflicts
-
-1. **Pull before creating** new migrations
-2. **Use timestamps** (not sequential numbers) for ordering
-3. **One migration per PR** when possible
-4. **Rebase carefully** - may need to regenerate timestamps
-
-### Conflict Resolution
-
-If two developers create migrations with same timestamp:
-
-```bash
-# Developer B rebases and regenerates timestamp
-git rebase main
-# Rename migration file with new timestamp
-mv migrations/20240502100843_add_phone.sql \
-   migrations/20240502101530_add_phone.sql
-```text
-
-### Never Modify Pushed Migrations
-
-Once a migration is pushed to a shared branch:
-
-```text
-❌ NEVER edit the migration file
-❌ NEVER rename the migration file
-❌ NEVER delete the migration file
-
-✅ Create a NEW migration to fix issues
-✅ Create a NEW migration to rollback changes
-```text
-
-## CI/CD Integration
-
-### GitHub Actions Example
-
-```yaml
-name: Database Migration
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'migrations/**'
-
-jobs:
-  migrate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Backup database
-        run: |
-          pg_dump $DATABASE_URL > backup_$(date +%Y%m%d_%H%M%S).sql
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      
-      - name: Run migrations
-        run: |
-          # Your migration tool command
-          flyway migrate
-          # OR: npx prisma migrate deploy
-          # OR: bundle exec rails db:migrate
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      
-      - name: Verify migration
-        run: |
-          # Run a simple query to verify database is accessible
-          psql $DATABASE_URL -c "SELECT 1"
-```text
-
-## Tool-Specific Patterns
-
-### Flyway
-
-```text
-migrations/
-├── V1__create_users.sql
-├── V2__add_email_to_users.sql
-├── R__refresh_views.sql          # Repeatable
-└── U2__undo_add_email.sql        # Undo
-```text
-
-### Prisma
-
-```bash
-npx prisma migrate dev --name add_user_email    # Development
-npx prisma migrate deploy                        # Production
-npx prisma migrate reset                         # Reset (dev only)
-```text
-
-### Laravel
-
-```bash
-php artisan make:migration create_users_table
-php artisan migrate
-php artisan migrate:rollback
-php artisan migrate:fresh --seed    # Dev only
-```text
-
-### Rails
-
-```bash
-rails generate migration CreateUsers
-rails db:migrate
-rails db:rollback
-rails db:migrate:redo              # Rollback + migrate
-```text
-
-### Raw SQL (Framework-Agnostic)
-
-```bash
-# Simple migration runner script
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+DB_URL="${DATABASE_URL:?DATABASE_URL is required}"
+psql "$DB_URL" -c "CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+compgen -G "migrations/*.sql" > /dev/null || { echo "No migration files found."; exit 0; }
 for f in migrations/*.sql; do
-    echo "Running $f..."
-    psql $DATABASE_URL -f "$f"
+  name="$(basename "$f")"
+  if grep -qiE '^\s*--\s*no-tx\b' "$f"; then
+    psql "$DB_URL" -v "name=$name" -c "SELECT pg_advisory_lock(hashtext('schema_migrations'));"
+    psql "$DB_URL" -f "$f"
+    psql "$DB_URL" -v "name=$name" -c "INSERT INTO schema_migrations (filename) SELECT :'name' WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE filename = :'name');"
+    psql "$DB_URL" -c "SELECT pg_advisory_unlock(hashtext('schema_migrations'));"
+    echo "Applied (or skipped): $name"; continue
+  fi
+  psql "$DB_URL" -v "name=$name" <<SQL
+SELECT pg_advisory_xact_lock(hashtext('schema_migrations'));
+BEGIN;
+\i $f
+INSERT INTO schema_migrations (filename)
+  SELECT :'name' WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE filename = :'name');
+COMMIT;
+SQL
+  echo "Applied (or skipped): $name"
 done
-```text
-
-## Rollback Procedures
-
-### Single Migration Rollback
-
-```bash
-# Extract and run DOWN section
-# Most tools have built-in commands:
-flyway undo
-npx prisma migrate resolve --rolled-back 20240502100843_add_email
-rails db:rollback STEP=1
-php artisan migrate:rollback --step=1
-```text
-
-### Point-in-Time Recovery
-
-For catastrophic failures, restore from backup:
-
-```bash
-# PostgreSQL
-pg_restore -d dbname backup_before_migration.dump
-
-# MySQL
-mysql dbname < backup_before_migration.sql
-```text
-
-## Migration Tracking Table
-
-Most tools create a tracking table:
-
-```sql
--- Example: Flyway schema_history
-CREATE TABLE flyway_schema_history (
-    installed_rank INT PRIMARY KEY,
-    version VARCHAR(50),
-    description VARCHAR(200),
-    type VARCHAR(20),
-    script VARCHAR(1000),
-    checksum INT,
-    installed_by VARCHAR(100),
-    installed_on TIMESTAMP,
-    execution_time INT,
-    success BOOLEAN
-);
-```text
-
-Query to see migration status:
-
-```sql
-SELECT version, description, installed_on, success
-FROM flyway_schema_history
-ORDER BY installed_rank;
-```text
+```

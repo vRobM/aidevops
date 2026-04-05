@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 """
 Git/filesystem safety guard for Claude Code (PreToolUse hook).
 
 Blocks destructive commands that can lose uncommitted work or delete files.
-This hook runs before Bash commands execute and can deny dangerous operations.
+Also enforces the main-branch file allowlist (t1712): Edit and Write tool calls
+targeting non-allowlisted paths on main/master are blocked.
+
+This hook runs before Bash/Edit/Write tool calls execute and can deny dangerous operations.
 
 Installed by: aidevops setup (setup.sh) or install-hooks-helper.sh
 Location: ~/.aidevops/hooks/git_safety_guard.py
@@ -17,7 +22,9 @@ Exit behavior:
   - Exit 0 with no output = allow
 """
 import json
+import os
 import re
+import subprocess
 import sys
 
 # Destructive patterns to block - tuple of (regex, reason)
@@ -144,6 +151,161 @@ SAFE_PATTERNS = [
 ]
 
 
+# =============================================================================
+# Main-branch file allowlist (t1712)
+# =============================================================================
+# Paths writable on main/master without a linked worktree.
+# Checked as exact match or prefix match (normalised, no leading ./).
+MAIN_BRANCH_ALLOWLIST = [
+    "README.md",
+    "TODO.md",
+    "todo/",  # prefix: todo/** subtree
+]
+
+
+def _get_current_branch(cwd: str) -> str:
+    """Return the current git branch name, or empty string on failure."""
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=5,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _is_linked_worktree(cwd: str) -> bool:
+    """Return True if cwd is inside a linked worktree (not the main worktree)."""
+    try:
+        git_dir = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=5,
+        ).stdout.strip()
+        git_common_dir = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=5,
+        ).stdout.strip()
+        # In a linked worktree, git-dir != git-common-dir
+        return git_dir != git_common_dir and git_dir != ".git"
+    except Exception:
+        return False
+
+
+def _get_repo_root(cwd: str) -> str:
+    """Return the absolute path of the git repository root, or empty string on failure."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=5,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _is_main_allowlisted(file_path: str, repo_root: str) -> bool:
+    """Return True if file_path is in the main-branch write allowlist.
+
+    file_path may be absolute or repo-relative.
+    repo_root must be an absolute path (from git rev-parse --show-toplevel).
+    Rejects path traversal: any path that escapes repo_root is denied.
+    """
+    if not repo_root:
+        return False
+
+    # Resolve to absolute path
+    if os.path.isabs(file_path):
+        abs_path = os.path.normpath(file_path)
+    else:
+        abs_path = os.path.normpath(os.path.join(repo_root, file_path))
+
+    # Reject traversal: path must be inside repo_root
+    norm_root = os.path.normpath(repo_root)
+    try:
+        common = os.path.commonpath([abs_path, norm_root])
+    except ValueError:
+        return False  # Different drives (Windows) or other error
+    if common != norm_root:
+        return False  # Escapes repo root
+
+    # Compute repo-relative path (no leading separator)
+    rel_path = os.path.relpath(abs_path, norm_root)
+
+    # Reject any remaining traversal (e.g. relpath produced "..")
+    if rel_path.startswith(".."):
+        return False
+
+    for allowed in MAIN_BRANCH_ALLOWLIST:
+        if allowed.endswith("/"):
+            # Prefix match (subtree): rel_path == "todo" or starts with "todo/"
+            prefix = allowed.rstrip("/")
+            if rel_path == prefix or rel_path.startswith(allowed):
+                return True
+        else:
+            # Exact match
+            if rel_path == allowed:
+                return True
+    return False
+
+
+def _check_main_branch_allowlist(file_path: str) -> "dict | None":
+    """Check if an Edit/Write to file_path is allowed on the current branch.
+
+    Returns a deny dict if the write should be blocked, None if allowed.
+    """
+    if not file_path:
+        return None
+
+    # Always use cwd for git commands — avoids failures for new (not-yet-created) files
+    cwd = os.getcwd()
+
+    # Resolve repo root from cwd (reliable even for new files)
+    repo_root = _get_repo_root(cwd)
+    if not repo_root:
+        return None  # Not in a git repo — allow
+
+    branch = _get_current_branch(repo_root)
+    if branch not in ("main", "master"):
+        return None  # Not on a protected branch — allow
+
+    # On main/master: check if this is a linked worktree (allowed) or main worktree (restricted)
+    if _is_linked_worktree(repo_root):
+        return None  # Linked worktrees are always allowed
+
+    # Main worktree on main/master: enforce allowlist
+    if _is_main_allowlisted(file_path, repo_root):
+        return None  # Allowlisted path — allow
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"BLOCKED by git_safety_guard.py (aidevops t1712)\n\n"
+                f"Reason: '{file_path}' is not in the main-branch write allowlist.\n\n"
+                f"Allowlisted paths (writable on main without a worktree): "
+                f"README.md, TODO.md, todo/**\n\n"
+                f"All other edits must be made in a linked worktree:\n"
+                f"  wt switch -c feature/your-task-name\n\n"
+                f"This enforces the canonical-repo-on-main policy (t1712)."
+            ),
+        }
+    }
+
+
 def _normalize_absolute_paths(cmd):
     """Normalize absolute paths to rm/git for consistent pattern matching.
 
@@ -163,7 +325,7 @@ def _normalize_absolute_paths(cmd):
 
 
 def main():
-    """Check stdin for destructive Bash commands and block them."""
+    """Check stdin for destructive Bash commands and enforce main-branch allowlist."""
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
@@ -171,6 +333,20 @@ def main():
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input") or {}
+
+    # ==========================================================================
+    # Edit / Write tool: enforce main-branch file allowlist (t1712)
+    # ==========================================================================
+    if tool_name in ("Edit", "Write"):
+        file_path = tool_input.get("filePath", "")
+        deny = _check_main_branch_allowlist(file_path)
+        if deny:
+            print(json.dumps(deny))
+        sys.exit(0)
+
+    # ==========================================================================
+    # Bash tool: block destructive commands
+    # ==========================================================================
     command = tool_input.get("command", "")
 
     if tool_name != "Bash" or not isinstance(command, str) or not command:

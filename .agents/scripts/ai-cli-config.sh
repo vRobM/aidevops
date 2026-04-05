@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # AI CLI Configuration Script
 # Configures MCP integrations for all detected AI assistants
 #
@@ -31,7 +33,7 @@ json_set_nested() {
 	fi
 
 	python3 - "$file" "$outer_key" "$inner_key" "$value_json" <<'PYEOF'
-import json, sys
+import json, sys, os, tempfile
 
 file_path = sys.argv[1]
 outer_key = sys.argv[2]
@@ -47,13 +49,18 @@ except (FileNotFoundError, json.JSONDecodeError):
 if outer_key not in config or not isinstance(config[outer_key], dict):
     config[outer_key] = {}
 
-if inner_key in config[outer_key]:
-    print(f"{inner_key} already configured in {file_path} - skipping")
+existed = inner_key in config[outer_key]
+config[outer_key][inner_key] = json.loads(value_json)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(file_path) or '.', suffix='.tmp')
+with os.fdopen(fd, 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+    f.flush()
+    os.fsync(f.fileno())
+os.rename(tmp, file_path)
+if existed:
+    print(f"Updated {inner_key} in {file_path}")
 else:
-    config[outer_key][inner_key] = json.loads(value_json)
-    with open(file_path, 'w') as f:
-        json.dump(config, f, indent=2)
-        f.write('\n')
     print(f"Added {inner_key} to {file_path}")
 PYEOF
 	return 0
@@ -80,7 +87,7 @@ json_append_to_array() {
 	fi
 
 	python3 - "$file" "$array_key" "$value_json" "$match_key" "$match_val" <<'PYEOF'
-import json, sys
+import json, sys, os, tempfile
 
 file_path = sys.argv[1]
 array_key = sys.argv[2]
@@ -104,9 +111,13 @@ for item in config[array_key]:
         sys.exit(0)
 
 config[array_key].append(json.loads(value_json))
-with open(file_path, 'w') as f:
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(file_path) or '.', suffix='.tmp')
+with os.fdopen(fd, 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
+    f.flush()
+    os.fsync(f.fileno())
+os.rename(tmp, file_path)
 print(f"Added {match_val} to {array_key} array in {file_path}")
 PYEOF
 	return 0
@@ -120,16 +131,11 @@ PYEOF
 # Source: https://github.com/janwilmake/openapi-mcp-server
 # URL:    https://openapi-mcp.openapisearch.com/mcp
 # =============================================================================
-configure_openapi_search_mcp() {
-	local mcp_name="openapi-search"
-	local mcp_url="https://openapi-mcp.openapisearch.com/mcp"
 
-	print_info "Configuring OpenAPI Search MCP for AI assistants..."
-	print_info "Remote URL: $mcp_url (no prerequisites required)"
-
-	# -------------------------------------------------------------------------
-	# OpenCode — ~/.config/opencode/opencode.json
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for OpenCode (~/.config/opencode/opencode.json).
+_configure_openapi_opencode() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	local opencode_config="$HOME/.config/opencode/opencode.json"
 	if [[ -d "$HOME/.config/opencode" ]] || command -v opencode >/dev/null 2>&1; then
 		mkdir -p "$HOME/.config/opencode"
@@ -141,10 +147,13 @@ configure_openapi_search_mcp() {
 		print_warning "OpenCode not detected - skipping"
 		print_info "Run setup.sh to create OpenCode config, then re-run this script"
 	fi
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Claude Code CLI — claude mcp add --transport http
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Claude Code CLI (claude mcp add).
+_configure_openapi_claude_code() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	if command -v claude >/dev/null 2>&1; then
 		print_info "Configuring OpenAPI Search for Claude Code..."
 		if claude mcp add --scope user "$mcp_name" --transport http "$mcp_url"; then
@@ -158,10 +167,13 @@ configure_openapi_search_mcp() {
 	else
 		print_info "Claude Code CLI not found - skipping (install: https://claude.ai/download)"
 	fi
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Cursor — ~/.cursor/mcp.json
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Cursor (~/.cursor/mcp.json).
+_configure_openapi_cursor() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	local cursor_config="$HOME/.cursor/mcp.json"
 	if [[ -d "$HOME/.cursor" ]] || command -v cursor >/dev/null 2>&1; then
 		print_info "Configuring OpenAPI Search for Cursor..."
@@ -172,10 +184,13 @@ configure_openapi_search_mcp() {
 	else
 		print_info "Cursor not detected - skipping"
 	fi
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Windsurf — ~/.codeium/windsurf/mcp_config.json
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Windsurf (~/.codeium/windsurf/mcp_config.json).
+_configure_openapi_windsurf() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	local windsurf_config="$HOME/.codeium/windsurf/mcp_config.json"
 	if [[ -d "$HOME/.codeium/windsurf" ]] || command -v windsurf >/dev/null 2>&1; then
 		print_info "Configuring OpenAPI Search for Windsurf..."
@@ -186,10 +201,13 @@ configure_openapi_search_mcp() {
 	else
 		print_info "Windsurf not detected - skipping"
 	fi
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Gemini CLI — ~/.gemini/settings.json
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Gemini CLI (~/.gemini/settings.json).
+_configure_openapi_gemini() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	local gemini_config="$HOME/.gemini/settings.json"
 	if [[ -d "$HOME/.gemini" ]] || command -v gemini >/dev/null 2>&1; then
 		print_info "Configuring OpenAPI Search for Gemini CLI..."
@@ -200,10 +218,13 @@ configure_openapi_search_mcp() {
 	else
 		print_info "Gemini CLI not detected - skipping"
 	fi
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Continue.dev — ~/.continue/config.json (array-based mcpServers)
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Continue.dev (~/.continue/config.json, array-based).
+_configure_openapi_continue() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	local continue_config="$HOME/.continue/config.json"
 	# Note: 'continue' is a bash builtin, so 'command -v continue' always succeeds.
 	# Use 'type -P' to search only the filesystem PATH for a real Continue.dev binary.
@@ -217,14 +238,17 @@ configure_openapi_search_mcp() {
 	else
 		print_info "Continue.dev not detected - skipping"
 	fi
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Kilo Code / Kiro — ~/.kilo/mcp.json and ~/.kiro/mcp.json
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Kilo Code / Kiro (~/.kilo/mcp.json, ~/.kiro/mcp.json).
+_configure_openapi_kilo_kiro() {
+	local mcp_name="$1"
+	local mcp_url="$2"
+	local kilo_dir kilo_config kilo_name
 	for kilo_dir in "$HOME/.kilo" "$HOME/.kiro"; do
 		if [[ -d "$kilo_dir" ]]; then
-			local kilo_config="$kilo_dir/mcp.json"
-			local kilo_name
+			kilo_config="$kilo_dir/mcp.json"
 			kilo_name="$(basename "$kilo_dir")"
 			print_info "Configuring OpenAPI Search for ${kilo_name}..."
 			json_set_nested "$kilo_config" "mcpServers" "$mcp_name" \
@@ -232,10 +256,40 @@ configure_openapi_search_mcp() {
 			print_success "${kilo_name} configured for OpenAPI Search"
 		fi
 	done
+	return 0
+}
 
-	# -------------------------------------------------------------------------
-	# Droid (Factory.AI) — droid mcp add CLI
-	# -------------------------------------------------------------------------
+# Configure OpenAPI Search MCP for Codex (OpenAI) via config.toml.
+# Codex uses TOML config at ~/.codex/config.toml with [mcp_servers.NAME] sections.
+_configure_openapi_codex() {
+	local mcp_name="$1"
+	local mcp_url="$2"
+	local codex_config="$HOME/.codex/config.toml"
+	if [[ -d "$HOME/.codex" ]] || command -v codex >/dev/null 2>&1; then
+		print_info "Configuring OpenAPI Search for Codex..."
+		mkdir -p "$HOME/.codex"
+		# Codex uses TOML — append section if not already present
+		if grep -q "\\[mcp_servers\\.${mcp_name}\\]" "$codex_config" 2>/dev/null; then
+			print_info "$mcp_name already configured in $codex_config - skipping"
+		else
+			{
+				echo ""
+				echo "[mcp_servers.${mcp_name}]"
+				echo "type = 'url'"
+				echo "url = '${mcp_url}'"
+			} >>"$codex_config"
+			print_success "Codex configured for OpenAPI Search"
+		fi
+	else
+		print_info "Codex not detected - skipping"
+	fi
+	return 0
+}
+
+# Configure OpenAPI Search MCP for Droid (Factory.AI) via droid CLI.
+_configure_openapi_droid() {
+	local mcp_name="$1"
+	local mcp_url="$2"
 	if command -v droid >/dev/null 2>&1; then
 		print_info "Configuring OpenAPI Search for Droid (Factory.AI)..."
 		droid mcp add "$mcp_name" --url "$mcp_url" || true
@@ -243,6 +297,25 @@ configure_openapi_search_mcp() {
 	else
 		print_info "Droid (Factory.AI) not detected - skipping"
 	fi
+	return 0
+}
+
+configure_openapi_search_mcp() {
+	local mcp_name="openapi-search"
+	local mcp_url="https://openapi-mcp.openapisearch.com/mcp"
+
+	print_info "Configuring OpenAPI Search MCP for AI assistants..."
+	print_info "Remote URL: $mcp_url (no prerequisites required)"
+
+	_configure_openapi_opencode "$mcp_name" "$mcp_url"
+	_configure_openapi_claude_code "$mcp_name" "$mcp_url"
+	_configure_openapi_codex "$mcp_name" "$mcp_url"
+	_configure_openapi_cursor "$mcp_name" "$mcp_url"
+	_configure_openapi_windsurf "$mcp_name" "$mcp_url"
+	_configure_openapi_gemini "$mcp_name" "$mcp_url"
+	_configure_openapi_continue "$mcp_name" "$mcp_url"
+	_configure_openapi_kilo_kiro "$mcp_name" "$mcp_url"
+	_configure_openapi_droid "$mcp_name" "$mcp_url"
 
 	print_success "OpenAPI Search MCP configured for all detected AI assistants"
 	print_info "Docs: https://github.com/janwilmake/openapi-mcp-server"

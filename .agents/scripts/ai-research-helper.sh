@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # ai-research-helper.sh — Lightweight Anthropic API wrapper for AI judgments
 # Provides cheap haiku-tier AI calls (~$0.001 each) for threshold decisions,
 # classification, and short-form reasoning tasks.
@@ -16,6 +18,7 @@
 # Exit codes: 0=success (response on stdout), 1=error, 2=no API key
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit
+# shellcheck source=shared-constants.sh
 source "${SCRIPT_DIR}/shared-constants.sh"
 
 set -euo pipefail

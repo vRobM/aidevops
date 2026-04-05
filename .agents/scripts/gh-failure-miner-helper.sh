@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # gh-failure-miner-helper.sh - Mine GitHub ci_activity notifications for systemic failures
 
 set -euo pipefail
@@ -607,6 +609,11 @@ build_issue_body() {
 ensure_repo_labels() {
 	local clusters_json="$1"
 	printf '%s\n' "$clusters_json" | jq -r '.[].repo' | sort -u | while IFS= read -r repo_entry; do
+		# Skip empty or malformed slugs (must be owner/repo format)
+		if [[ -z "$repo_entry" ]] || [[ "$repo_entry" != *"/"* ]]; then
+			echo "ensure_repo_labels: skipping invalid repo slug: '${repo_entry}'" >&2
+			continue
+		fi
 		gh label create "source:ci-failure-miner" --repo "$repo_entry" \
 			--description "Auto-created by gh-failure-miner-helper.sh" --color "C2E0C6" --force || true
 	done
@@ -644,9 +651,19 @@ create_or_preview_issue() {
 		return 0
 	fi
 
-	local create_cmd=(gh issue create --repo "$repo_slug" --title "$title" --body "$body" --label bug --label "source:ci-failure-miner")
+	# Append signature footer
+	local sig_helper="${SCRIPT_DIR}/gh-signature-helper.sh"
+	if [[ -x "$sig_helper" ]]; then
+		local sig_footer
+		sig_footer=$("$sig_helper" footer --body "$body" 2>/dev/null || echo "")
+		if [[ -n "$sig_footer" ]]; then
+			body="${body}${sig_footer}"
+		fi
+	fi
+
+	local create_cmd=(gh_create_issue --repo "$repo_slug" --title "$title" --body "$body" --label bug --label "source:ci-failure-miner")
 	local label
-	for label in "${extra_labels[@]}"; do
+	for label in ${extra_labels[@]+"${extra_labels[@]}"}; do
 		if [[ -n "$label" ]]; then
 			create_cmd+=(--label "$label")
 		fi
@@ -705,7 +722,7 @@ create_systemic_issues() {
 			continue
 		fi
 
-		create_or_preview_issue "$cluster_json" "$pattern_id" "$systemic_threshold" "$dry_run" "${extra_labels[@]}"
+		create_or_preview_issue "$cluster_json" "$pattern_id" "$systemic_threshold" "$dry_run" ${extra_labels[@]+"${extra_labels[@]}"}
 
 		created=$((created + 1))
 		idx=$((idx + 1))
@@ -765,7 +782,16 @@ build_routine_prompt() {
 parse_launchd_options() {
 	ROUTINE_NAME="$DEFAULT_ROUTINE_NAME"
 	ROUTINE_SCHEDULE="$DEFAULT_ROUTINE_SCHEDULE"
-	ROUTINE_DIR=$(cd "${SCRIPT_DIR}/../.." && pwd)
+	# Resolve to canonical (main) worktree, not a linked worktree.
+	# Worktree paths like ~/Git/repo.branch-name get cleaned up, so the plist
+	# must point at the main worktree (~/Git/repo) to survive worktree removal.
+	local raw_dir
+	raw_dir=$(cd "${SCRIPT_DIR}/../.." && pwd)
+	ROUTINE_DIR=$(git -C "$raw_dir" worktree list --porcelain 2>/dev/null |
+		awk '/^worktree / {print substr($0, 10); exit}') || ROUTINE_DIR=""
+	if [[ -z "$ROUTINE_DIR" || ! -d "$ROUTINE_DIR" ]]; then
+		ROUTINE_DIR="$raw_dir"
+	fi
 	ROUTINE_TITLE="$DEFAULT_ROUTINE_TITLE"
 	LAUNCHD_SINCE_HOURS="$DEFAULT_SINCE_HOURS"
 	LAUNCHD_SYSTEMIC_THRESHOLD="$DEFAULT_SYSTEMIC_THRESHOLD"

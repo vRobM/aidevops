@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # framework-routing-helper.sh - Detect and route framework-level tasks to the aidevops repo
 #
 # Solves: GH#5149 — workers create framework tasks in project repos instead of
@@ -342,9 +344,14 @@ log_framework_issue() {
 *Detected by framework-routing-helper in \`${source_repo}\`.*"
 	fi
 
+	# Append signature footer
+	local sig_footer=""
+	sig_footer=$("${HOME}/.aidevops/agents/scripts/gh-signature-helper.sh" footer --body "$body" 2>/dev/null || true)
+	body="${body}${sig_footer}"
+
 	# Create the issue
 	local issue_url
-	if ! issue_url=$(gh issue create --repo "$slug" \
+	if ! issue_url=$(gh_create_issue --repo "$slug" \
 		--title "$title" \
 		--body "$body" \
 		--label "$labels" 2>&1); then

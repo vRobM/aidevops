@@ -11,6 +11,9 @@ tools:
   webfetch: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Closte Provider Guide
 
 <!-- AI-CONTEXT-START -->
@@ -27,67 +30,27 @@ tools:
 - **Multisite**: Always use `--url=` flag with WP-CLI
 - **File perms**: 755 dirs, 644 files, owner u12345678
 - **Disable Dev Mode when done**: `wp closte devmode disable`
+
 <!-- AI-CONTEXT-END -->
 
-Closte is a managed cloud hosting provider optimized for WordPress, offering automatic scaling and a pay-as-you-go model.
+## Caching & Dev Mode
 
-## Provider Overview
-
-### **Closte Characteristics:**
-
-- **Infrastructure Type**: Managed WordPress Cloud (Google Cloud Platform / Litespeed)
-- **Locations**: Global (GCP network)
-- **SSH Access**: Restricted shell access with password authentication (keys not supported)
-- **Control Panel**: Custom Closte Dashboard
-- **Caching**: Integrated Litespeed Cache + CDN + Object Cache (Redis)
-- **Pricing**: Pay-as-you-go based on resource usage
-- **Performance**: High-performance Litespeed stack
-
-## ⚠️ **Critical: Caching & AI Content Editing**
-
-**Issue:** Closte uses aggressive caching (Litespeed Page Cache + Object Cache/Redis + CDN). When updating content via WP-CLI or SSH, the Admin Dashboard and Frontend may show stale data even after flushing standard caches.
-
-**Solution:** You must enable **Development Mode** before performing bulk edits or debugging via CLI/SSH.
-
-### **Enabling Development Mode**
-
-Development Mode disables all caching layers (Page, Object, CDN) to ensure you see the real-time state of the database.
-
-**Via WP-CLI (Recommended):**
+Closte uses aggressive caching (Litespeed Page Cache + Object Cache/Redis + CDN). Enable Dev Mode before any CLI/SSH edits — disables all caching layers so you see real-time state.
 
 ```bash
-# Enable Dev Mode
-wp closte devmode enable
-
-# Disable Dev Mode (Restore Caching)
-wp closte devmode disable
+wp closte devmode enable   # before edits
+wp closte devmode disable  # after edits — restores caching
 ```
 
-**Via Dashboard:**
+**Via Dashboard:** Sites > [Your Site] > Settings > Development Mode toggle.
 
-1. Go to Closte Dashboard > Sites > [Your Site].
-2. Navigate to **Settings**.
-3. Toggle **Development Mode** to ON.
+If Admin Panel still shows stale data after Dev Mode: `wp cache flush` (add `--url=https://example.com` for multisite).
 
-**Manual Object Cache Flush:**
-If changes are still stuck in the Admin Panel (e.g., "Last edited 7 days ago"), flush the object cache specifically:
+## Configuration
 
 ```bash
-wp cache flush
-# If using multisite, specify URL:
-wp cache flush --url=https://example.com
-```
-
-## 🔧 **Configuration**
-
-### **Setup Configuration:**
-
-```bash
-# Copy template
 cp configs/closte-config.json.txt configs/closte-config.json
 ```
-
-### **Configuration Structure:**
 
 ```json
 {
@@ -108,70 +71,138 @@ cp configs/closte-config.json.txt configs/closte-config.json
 }
 ```
 
-**Note:** Hostname often resolves to `mysql.cluster` or specific IP. Use the IP/Host provided in the Closte Dashboard under "Access".
+Hostname: use value from Closte Dashboard > Access (`mysql.cluster` or a specific IP).
 
-### **Password Authentication:**
-
-Closte **does not support SSH keys**. You must use `sshpass` with a stored password file.
+**SSH setup (password auth only — no keys):**
 
 ```bash
-# Install sshpass
-brew install sshpass  # macOS
+brew install sshpass          # macOS
 sudo apt-get install sshpass  # Linux
 
-# Store password
 echo 'your-closte-password' > ~/.ssh/closte_password
 chmod 600 ~/.ssh/closte_password
 
-# Connect
 sshpass -f ~/.ssh/closte_password ssh user@host
 ```
 
-## 🚀 **Usage Examples**
-
-### **WP-CLI Operations (Multisite):**
+## WP-CLI Operations
 
 Closte often hosts Multisite networks. Always specify `--url` to target the correct site.
 
 ```bash
-# List sites
 wp site list --fields=blog_id,url
-
-# Update Post on Specific Site
 wp post update 123 content.txt --url=https://subsite.example.com
-
-# Flush Cache for Specific Site
 wp cache flush --url=https://subsite.example.com
 ```
 
-### **File Operations:**
+**File transfer:**
 
 ```bash
-# Upload file
 sshpass -f ~/.ssh/closte_pass scp local.txt user@host:public_html/remote.txt
-
-# Recursive Download
 sshpass -f ~/.ssh/closte_pass scp -r user@host:public_html/wp-content/themes/my-theme ./local-theme
 ```
 
-## 🔍 **Troubleshooting**
+## Cloudflare Proxy (SSL A+ Grade)
 
-### **Changes Not Visible:**
+Closte supports TLS 1.1 (GCloud limitation), capping SSL Labs at B. Fix: proxy through Cloudflare with Full (strict) SSL and minimum TLS 1.2.
 
-1. **Check Dev Mode:** Ensure `wp closte devmode enable` is run.
-2. **Flush Object Cache:** Run `wp cache flush`.
-3. **Check CDN:** Purge CDN via Closte Dashboard if static assets are stale.
-4. **Browser Cache:** Use Incognito mode.
+### Step 1: wp-config.php Fix
 
-### **Database Connection:**
+Without this, WordPress redirect-loops behind Cloudflare because `is_ssl()` returns false (Cloudflare terminates TLS, origin sees HTTP). Add **before** `/* That's all, stop editing! */`:
 
-Closte uses `mysql.cluster` as DB_HOST. Ensure your scripts/WP-CLI config respect this.
+```php
+// Trust X-Forwarded-Proto only from Cloudflare IPs (defence-in-depth;
+// Closte's managed firewall already restricts origin access to CF IPs).
+// Keep IP list current: https://www.cloudflare.com/ips/
+function _cf_ip_in_cidr( string $ip, string $cidr ): bool {
+    [ $subnet, $bits ] = explode( '/', $cidr );
+    if ( strpos( $ip, ':' ) !== false ) {
+        $ip_bin     = inet_pton( $ip );
+        $subnet_bin = inet_pton( $subnet );
+        if ( $ip_bin === false || $subnet_bin === false ) { return false; }
+        $bytes = (int) ceil( (int) $bits / 8 );
+        $mask  = (int) $bits % 8;
+        if ( substr( $ip_bin, 0, $bytes - ( $mask ? 1 : 0 ) )
+             !== substr( $subnet_bin, 0, $bytes - ( $mask ? 1 : 0 ) ) ) {
+            return false;
+        }
+        if ( $mask ) {
+            $last_byte_mask = 0xFF & ( 0xFF << ( 8 - $mask ) );
+            return ( ord( $ip_bin[ $bytes - 1 ] ) & $last_byte_mask )
+                === ( ord( $subnet_bin[ $bytes - 1 ] ) & $last_byte_mask );
+        }
+        return true;
+    }
+    $mask_long = -1 << ( 32 - (int) $bits );
+    return ( ip2long( $ip ) & $mask_long ) === ( ip2long( $subnet ) & $mask_long );
+}
 
-### **Permissions:**
+$cloudflare_ip_ranges = [
+    // IPv4 — https://www.cloudflare.com/ips-v4
+    '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+    '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+    '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+    '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+    // IPv6 — https://www.cloudflare.com/ips-v6
+    '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+    '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+];
 
-Files should generally be owned by the user (e.g., `u12345678`) and group `u12345678`.
-Standard permissions: `755` for directories, `644` for files.
+$remote_addr     = $_SERVER['REMOTE_ADDR'] ?? '';
+$from_cloudflare = false;
+foreach ( $cloudflare_ip_ranges as $range ) {
+    if ( _cf_ip_in_cidr( $remote_addr, $range ) ) { $from_cloudflare = true; break; }
+}
 
----
+if ( $from_cloudflare
+     && isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] )
+     && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https' ) {
+    $_SERVER['HTTPS'] = 'on';
+}
+```
 
-**Closte is powerful but requires strict cache management for development workflows.** 🚀
+For multisite: add once to the shared `wp-config.php` — all sites inherit it.
+
+### Step 2: Cloudflare Zone Settings
+
+1. Add domain to Cloudflare (free plan sufficient); update registrar nameservers.
+2. DNS: enable proxy (orange cloud) on `A` record for `@` and `CNAME` for `www`.
+3. **SSL/TLS mode** → **Full (strict)**. Never use "Flexible" — sends plaintext to origin.
+4. **Minimum TLS Version** → **TLS 1.2** (SSL/TLS > Edge Certificates). Eliminates the B grade.
+5. **Always Use HTTPS** → enable.
+6. **HSTS** → enable, `max-age` ≥ 6 months, `includeSubDomains`.
+
+### Step 3: Verification
+
+```bash
+curl -sI https://example.com | grep -i cf-ray          # Cloudflare proxying
+curl -sI https://example.com | head -5                  # no redirect loop
+curl --tlsv1.1 --tls-max 1.1 https://example.com 2>&1 | head -3  # TLS 1.1 rejected (expect SSL handshake failure)
+```
+
+### Multisite with Domain Mapping
+
+Each mapped domain needs its own Cloudflare zone (free plan). Apply the same settings (Full strict, min TLS 1.2, HSTS) to each zone. DNS for each domain must point to Closte's IP with proxy enabled.
+
+### Known Interactions
+
+| Component | Behaviour | Action |
+|-----------|-----------|--------|
+| Let's Encrypt renewal | HTTP-01 challenge blocked by Cloudflare cache. | Cache Rule: bypass on `/.well-known/acme-challenge/*`. |
+| Closte Dashboard warnings | Shows "DNS not pointing to us" (detects CF IPs). | Safe to ignore. |
+| RSSSL `.htaccess` test | Test request via Cloudflare may fail. | Ignore — RSSSL works with the `wp-config.php` snippet. |
+| Litespeed Cache CDN | Conflicts with Cloudflare CDN (double-caching). | Disable Closte CDN (Dashboard > CDN); keep Page Cache and Object Cache. |
+| Cloudflare APO | Conflicts with Litespeed Cache. | If using APO, disable Litespeed Page Cache. Litespeed alone is usually sufficient. |
+
+## Troubleshooting
+
+**Changes not visible:**
+
+1. Confirm `wp closte devmode enable` was run.
+2. `wp cache flush` (add `--url=` for multisite).
+3. Purge CDN via Closte Dashboard if static assets are stale.
+4. Test in Incognito to rule out browser cache.
+
+**Database connection:** Closte uses `mysql.cluster` as `DB_HOST`. Ensure WP-CLI config and scripts use this value.
+
+**Permissions:** Files owned by `u12345678:u12345678`. Standard: `755` dirs, `644` files.

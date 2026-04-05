@@ -102,6 +102,18 @@
     // Env override: AIDEVOPS_REPO_SYNC
     "repo_sync": true,
 
+    // Monitor external issues/PRs for new activity needing reply.
+    // Auto-seeds on first setup, then scans hourly via launchd/cron.
+    // Read-only (GitHub Notifications API), no autonomous replies.
+    // Env override: AIDEVOPS_CONTRIBUTION_WATCH
+    "contribution_watch": true,
+
+    // Create draft response issues in a private repo for contribution watch
+    // items needing reply. User approves via GitHub notification comments.
+    // Requires contribution_watch to be enabled.
+    // Env override: AIDEVOPS_DRAFT_RESPONSES
+    "draft_responses": true,
+
     // Hard ceiling for pulse worker pool size after RAM-based calculation.
     // Default 8 preserves current behavior.
     // Env override: AIDEVOPS_MAX_WORKERS_CAP
@@ -110,7 +122,53 @@
     // Maximum share of worker slots that quality-debt issues may consume.
     // Default 30 preserves current behavior.
     // Env override: AIDEVOPS_QUALITY_DEBT_CAP_PCT
-    "quality_debt_cap_pct": 30
+    "quality_debt_cap_pct": 30,
+
+    // Optional explicit pulse model override.
+    // Empty string keeps the shared default selection behavior.
+    // Example local opt-in: "openai/gpt-5.4"
+    // Env override: PULSE_MODEL
+    "pulse_model": "",
+
+    // Optional explicit headless worker model list override (comma-separated).
+    // Empty string keeps the shared round-robin/default behavior.
+    // Example local opt-in: "openai/gpt-5.4"
+    // Env override: AIDEVOPS_HEADLESS_MODELS
+    "headless_models": "",
+
+    // Seconds of unchanged backlog before triggering an LLM supervisor session.
+    // The deterministic fill floor handles routine dispatch every 2-min cycle;
+    // the LLM supervisor only adds value for edge cases (CHANGES_REQUESTED PRs,
+    // external contributor triage, semantic dedup, stale coaching).
+    // Lower = more LLM sessions (higher token cost), higher = more autonomous.
+    // Env override: PULSE_LLM_STALL_THRESHOLD
+    "llm_stall_threshold": 3600,
+
+    // Hard ceiling in seconds for a single pulse cycle (LLM session + preflight).
+    // The LLM supervisor should complete within 15 minutes — longer runs block
+    // the deterministic fill floor from dispatching new workers.
+    // Env override: PULSE_STALE_THRESHOLD
+    "pulse_stale_threshold": 900
+  },
+
+  // ---------------------------------------------------------------------------
+  // foss — FOSS contribution budget and etiquette controls (t1697)
+  // ---------------------------------------------------------------------------
+  "foss": {
+    // Master switch for all FOSS contribution activity.
+    // When false, foss-contribution-helper.sh check/scan will refuse all attempts.
+    // Env override: AIDEVOPS_FOSS_ENABLED
+    "enabled": false,
+
+    // Daily token ceiling across all FOSS repos combined.
+    // Contributions are refused once this limit is reached for the day.
+    // Counter resets at UTC midnight. Env override: AIDEVOPS_FOSS_MAX_DAILY_TOKENS
+    "max_daily_tokens": 200000,
+
+    // Maximum number of simultaneous FOSS contribution workers.
+    // Prevents runaway parallel contributions to multiple repos at once.
+    // Env override: AIDEVOPS_FOSS_MAX_CONCURRENT
+    "max_concurrent_contributions": 2
   },
 
   // ---------------------------------------------------------------------------

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 set -euo pipefail
 
 # Linter Manager - CodeFactor-Inspired Multi-Language Linter Installation
@@ -31,8 +33,8 @@ install_npm_global() {
 	fi
 }
 
-# Detect project languages and frameworks
-detect_project_languages() {
+# Detect scripted/interpreted languages (Python, JS, CSS, Shell, Docker, YAML, PHP, Ruby)
+_detect_scripted_languages() {
 	local languages=()
 
 	# Python
@@ -65,11 +67,6 @@ detect_project_languages() {
 		languages+=("yaml")
 	fi
 
-	# Go
-	if [[ -f "go.mod" || -f "go.sum" ]]; then
-		languages+=("go")
-	fi
-
 	# PHP
 	if [[ -f "composer.json" ]] || find . -name "*.php" | head -1 | grep -q .; then
 		languages+=("php")
@@ -78,6 +75,19 @@ detect_project_languages() {
 	# Ruby
 	if [[ -f "Gemfile" || -f "Rakefile" ]] || find . -name "*.rb" | head -1 | grep -q .; then
 		languages+=("ruby")
+	fi
+
+	printf '%s\n' "${languages[@]}"
+	return 0
+}
+
+# Detect compiled/typed languages (Go, Java, C#, Swift, Kotlin, Dart, R, C/C++, Haskell, Groovy, PowerShell)
+_detect_compiled_languages() {
+	local languages=()
+
+	# Go
+	if [[ -f "go.mod" || -f "go.sum" ]]; then
+		languages+=("go")
 	fi
 
 	# Java
@@ -130,10 +140,24 @@ detect_project_languages() {
 		languages+=("powershell")
 	fi
 
-	# Security scanning (always relevant)
-	languages+=("security")
-
 	printf '%s\n' "${languages[@]}"
+	return 0
+}
+
+# Detect project languages and frameworks
+detect_project_languages() {
+	local scripted compiled
+
+	scripted=$(_detect_scripted_languages)
+	compiled=$(_detect_compiled_languages)
+
+	# Combine results, filter empty lines, append security (always relevant)
+	{
+		printf '%s\n' "$scripted"
+		printf '%s\n' "$compiled"
+		printf '%s\n' "security"
+	} | grep -v '^$'
+
 	return 0
 }
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # Anti-detect browser helper - setup, profile management, launch, and testing
 # Usage: anti-detect-helper.sh [command] [options]
 set -euo pipefail
@@ -12,6 +14,7 @@ VENV_DIR="$HOME/.aidevops/anti-detect-venv"
 # shellcheck disable=SC2034
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit
 
+# shellcheck source=/dev/null
 source "${SCRIPT_DIR}/shared-constants.sh"
 
 show_help() {
@@ -25,8 +28,8 @@ COMMANDS:
     setup               Install anti-detect tools (Camoufox, rebrowser-patches)
     launch              Launch browser with anti-detect profile
     profile             Manage browser profiles (create/list/show/delete/clone)
-    cookies             Manage profile cookies (export/import/clear)
-    proxy               Proxy operations (check/check-all/dns-check)
+    cookies             Manage profile cookies (export/clear)
+    proxy               Proxy operations (check/check-all)
     test                Test detection status against bot-detection sites
     warmup              Warm up a profile with browsing history
     status              Show installation status of all tools
@@ -48,9 +51,6 @@ PROFILE SUBCOMMANDS:
     delete <name>       Delete profile
     clone <src> <dst>   Clone profile
     update <name>       Update profile settings
-    bulk-create         Create multiple profiles
-    export              Export profiles to archive
-    import              Import profiles from archive
 
 PROFILE CREATE OPTIONS:
     --type <type>       Profile type: persistent|clean|warm|disposable (default: persistent)
@@ -117,6 +117,7 @@ setup_camoufox() {
 	fi
 
 	# Install camoufox + browserforge
+	# shellcheck source=/dev/null
 	source "$VENV_DIR/bin/activate"
 	pip install --quiet --upgrade camoufox browserforge 2>/dev/null || {
 		echo -e "${YELLOW}Warning: pip install failed. Trying with --break-system-packages...${NC}"
@@ -524,64 +525,56 @@ with open('$profile_dir/metadata.json', 'r+') as f:
 	return $?
 }
 
-launch_camoufox() {
+# Resolve fingerprint and proxy file paths for a named profile.
+# Args: profile_name
+# Outputs two lines: config_arg (fingerprint path) and proxy_arg (proxy path).
+# Both may be empty strings if files are absent.
+camoufox_load_profile_config() {
 	local profile_name="$1"
-	local headless="$2"
-	local url="$3"
-	local disposable="$4"
-
-	source "$VENV_DIR/bin/activate" 2>/dev/null || {
-		echo -e "${RED}Error: Camoufox venv not found. Run: anti-detect-helper.sh setup${NC}" >&2
-		return 1
-	}
-
 	local profile_dir=""
 	local config_arg=""
 	local proxy_arg=""
 
 	if [[ -n "$profile_name" ]]; then
 		profile_dir=$(find_profile_dir "$profile_name")
-		if [[ -n "$profile_dir" && -f "$profile_dir/fingerprint.json" ]]; then
-			config_arg="$profile_dir/fingerprint.json"
-		fi
-		if [[ -n "$profile_dir" && -f "$profile_dir/proxy.json" ]]; then
-			proxy_arg="$profile_dir/proxy.json"
-		fi
+		[[ -n "$profile_dir" && -f "$profile_dir/fingerprint.json" ]] && config_arg="$profile_dir/fingerprint.json"
+		[[ -n "$profile_dir" && -f "$profile_dir/proxy.json" ]] && proxy_arg="$profile_dir/proxy.json"
 	fi
 
-	local headless_flag="True"
-	[[ "$headless" != "true" ]] && headless_flag="False"
+	printf '%s\n%s\n%s\n' "$profile_dir" "$config_arg" "$proxy_arg"
+	return 0
+}
 
-	local target_url="${url:-https://www.browserscan.net/bot-detection}"
+# Execute the Camoufox browser session with resolved profile paths.
+# Args: profile_dir config_arg proxy_arg headless_flag target_url disposable
+# Runs the Python session inline; caller must activate venv first.
+launch_camoufox_run() {
+	local profile_dir="$1"
+	local config_arg="$2"
+	local proxy_arg="$3"
+	local headless_flag="$4"
+	local target_url="$5"
+	local disposable="$6"
 
-	python3 -c "
-import json
+	python3 - <<PYEOF 2>&1
+import json, os.path
 from camoufox.sync_api import Camoufox
 
-profile_config = {}
-proxy = None
+profile_config, proxy = {}, None
 headless = $headless_flag
-
-config_file = '$config_arg'
-proxy_file = '$proxy_arg'
+config_file, proxy_file = '$config_arg', '$proxy_arg'
 
 if config_file:
     with open(config_file) as f:
         profile_config = json.load(f)
-
 if proxy_file:
     with open(proxy_file) as f:
         proxy = json.load(f)
 
-# Build Camoufox kwargs from profile config
 kwargs = {'headless': headless}
-
-# Pass OS constraint to BrowserForge
 os_list = profile_config.get('os')
 if os_list:
     kwargs['os'] = os_list
-
-# Pass screen constraints as Screen object
 screen_config = profile_config.get('screen')
 if screen_config:
     from browserforge.fingerprints import Screen
@@ -589,7 +582,6 @@ if screen_config:
         max_width=screen_config.get('maxWidth', 1920),
         max_height=screen_config.get('maxHeight', 1080),
     )
-
 if proxy:
     kwargs['proxy'] = proxy
     kwargs['geoip'] = True
@@ -600,11 +592,8 @@ with Camoufox(**kwargs) as browser:
     page.goto('$target_url', timeout=30000)
     print(f'Navigated to: {page.url}')
     print(f'Title: {page.title()}')
-
-    # Save state only for persistent/warm profiles (not clean/disposable)
     profile_dir = '$profile_dir'
     if profile_dir and '$disposable' != 'true':
-        import os.path
         profile_type = os.path.basename(os.path.dirname(profile_dir))
         if profile_type in ('persistent', 'warmup'):
             context = browser.contexts[0]
@@ -614,11 +603,37 @@ with Camoufox(**kwargs) as browser:
                 json.dump(state, f, indent=2)
             print(f'State saved ({len(cookies)} cookies)')
         else:
-            print(f'Clean profile - state not saved')
-
+            print('Clean profile - state not saved')
     if not headless:
         input('Press Enter to close browser...')
-" 2>&1
+PYEOF
+	return 0
+}
+
+launch_camoufox() {
+	local profile_name="$1"
+	local headless="$2"
+	local url="$3"
+	local disposable="$4"
+
+	# shellcheck source=/dev/null
+	source "$VENV_DIR/bin/activate" 2>/dev/null || {
+		echo -e "${RED}Error: Camoufox venv not found. Run: anti-detect-helper.sh setup${NC}" >&2
+		return 1
+	}
+
+	local config_lines profile_dir config_arg proxy_arg
+	config_lines=$(camoufox_load_profile_config "$profile_name")
+	profile_dir=$(printf '%s' "$config_lines" | sed -n '1p')
+	config_arg=$(printf '%s' "$config_lines" | sed -n '2p')
+	proxy_arg=$(printf '%s' "$config_lines" | sed -n '3p')
+
+	local headless_flag="True"
+	[[ "$headless" != "true" ]] && headless_flag="False"
+
+	local target_url="${url:-https://www.browserscan.net/bot-detection}"
+
+	launch_camoufox_run "$profile_dir" "$config_arg" "$proxy_arg" "$headless_flag" "$target_url" "$disposable"
 
 	deactivate 2>/dev/null || true
 	return 0
@@ -738,7 +753,9 @@ launch_chromium_stealth() {
 		fi
 		if [[ -n "$profile_dir" && -f "$profile_dir/proxy.json" ]]; then
 			proxy_server=$(python3 -c "import json; print(json.load(open('$profile_dir/proxy.json')).get('server',''))" 2>/dev/null)
+			local proxy_username
 			proxy_username=$(python3 -c "import json; print(json.load(open('$profile_dir/proxy.json')).get('username',''))" 2>/dev/null)
+			local proxy_password
 			proxy_password=$(python3 -c "import json; print(json.load(open('$profile_dir/proxy.json')).get('password',''))" 2>/dev/null)
 		fi
 	fi
@@ -810,7 +827,8 @@ const { chromium } = require('playwright');
 
 # ─── Testing ─────────────────────────────────────────────────────────────────
 
-test_detection() {
+# Parse --profile, --engine, --sites flags; echo three lines: profile engine sites.
+test_detection_parse_args() {
 	local profile_name=""
 	local engine="firefox"
 	local sites="browserscan,sannysoft"
@@ -835,27 +853,38 @@ test_detection() {
 		esac
 	done
 
-	echo -e "${BLUE}Testing bot detection (engine: $engine)...${NC}"
+	printf '%s\n%s\n%s\n' "$profile_name" "$engine" "$sites"
+	return 0
+}
 
-	source "$VENV_DIR/bin/activate" 2>/dev/null || true
-
+# Resolve config/proxy paths for a profile used in detection testing.
+# Args: profile_name
+# Outputs two lines: config_arg proxy_arg (may be empty).
+test_detection_load_profile() {
+	local profile_name="$1"
 	local config_arg=""
 	local proxy_arg=""
 
 	if [[ -n "$profile_name" ]]; then
 		local profile_dir
 		profile_dir=$(find_profile_dir "$profile_name")
-		if [[ -n "$profile_dir" && -f "$profile_dir/fingerprint.json" ]]; then
-			config_arg="$profile_dir/fingerprint.json"
-		fi
-		if [[ -n "$profile_dir" && -f "$profile_dir/proxy.json" ]]; then
-			proxy_arg="$profile_dir/proxy.json"
-		fi
+		[[ -n "$profile_dir" && -f "$profile_dir/fingerprint.json" ]] && config_arg="$profile_dir/fingerprint.json"
+		[[ -n "$profile_dir" && -f "$profile_dir/proxy.json" ]] && proxy_arg="$profile_dir/proxy.json"
 	fi
 
-	python3 -c "
+	printf '%s\n%s\n' "$config_arg" "$proxy_arg"
+	return 0
+}
+
+# Run Firefox (Camoufox) bot-detection tests against selected sites.
+# Args: config_arg proxy_arg sites_csv
+test_detection_run_firefox() {
+	local config_arg="$1"
+	local proxy_arg="$2"
+	local sites="$3"
+
+	python3 - <<PYEOF 2>&1
 import json
-import sys
 
 test_sites = {
     'browserscan': 'https://www.browserscan.net/bot-detection',
@@ -865,66 +894,79 @@ test_sites = {
 }
 
 selected = '$sites'.split(',')
-engine = '$engine'
+from camoufox.sync_api import Camoufox
 
-if engine == 'firefox':
-    from camoufox.sync_api import Camoufox
+profile_config, proxy = {}, None
+config_file, proxy_file = '$config_arg', '$proxy_arg'
+if config_file:
+    with open(config_file) as f:
+        profile_config = json.load(f)
+if proxy_file:
+    with open(proxy_file) as f:
+        proxy = json.load(f)
 
-    profile_config = {}
-    proxy = None
-    config_file = '$config_arg'
-    proxy_file = '$proxy_arg'
+kwargs = {'headless': True}
+os_list = profile_config.get('os')
+if os_list:
+    kwargs['os'] = os_list
+screen_config = profile_config.get('screen')
+if screen_config:
+    from browserforge.fingerprints import Screen
+    kwargs['screen'] = Screen(
+        max_width=screen_config.get('maxWidth', 1920),
+        max_height=screen_config.get('maxHeight', 1080),
+    )
+if proxy:
+    kwargs['proxy'] = proxy
+    kwargs['geoip'] = True
 
-    if config_file:
-        with open(config_file) as f:
-            profile_config = json.load(f)
+with Camoufox(**kwargs) as browser:
+    page = browser.new_page()
+    results = {}
+    for site_key in selected:
+        if site_key not in test_sites:
+            continue
+        url = test_sites[site_key]
+        try:
+            page.goto(url, timeout=30000)
+            page.wait_for_timeout(5000)
+            title = page.title()
+            screenshot_path = f'/tmp/anti-detect-test-{site_key}.png'
+            page.screenshot(path=screenshot_path)
+            results[site_key] = {'status': 'OK', 'title': title, 'screenshot': screenshot_path}
+            print(f'  {site_key}: PASS - {title}')
+        except Exception as e:
+            results[site_key] = {'status': 'FAIL', 'error': str(e)}
+            print(f'  {site_key}: FAIL - {e}')
+    print()
+    print(f'Results: {len([r for r in results.values() if r["status"]=="OK"])}/{len(results)} passed')
+    print(f'Screenshots saved to /tmp/anti-detect-test-*.png')
+PYEOF
+	return 0
+}
 
-    if proxy_file:
-        with open(proxy_file) as f:
-            proxy = json.load(f)
+test_detection() {
+	local parse_lines
+	parse_lines=$(test_detection_parse_args "$@")
+	local profile_name engine sites
+	profile_name=$(printf '%s' "$parse_lines" | sed -n '1p')
+	engine=$(printf '%s' "$parse_lines" | sed -n '2p')
+	sites=$(printf '%s' "$parse_lines" | sed -n '3p')
 
-    kwargs = {'headless': True}
-    os_list = profile_config.get('os')
-    if os_list:
-        kwargs['os'] = os_list
-    screen_config = profile_config.get('screen')
-    if screen_config:
-        from browserforge.fingerprints import Screen
-        kwargs['screen'] = Screen(
-            max_width=screen_config.get('maxWidth', 1920),
-            max_height=screen_config.get('maxHeight', 1080),
-        )
-    if proxy:
-        kwargs['proxy'] = proxy
-        kwargs['geoip'] = True
+	echo -e "${BLUE}Testing bot detection (engine: $engine)...${NC}"
 
-    with Camoufox(**kwargs) as browser:
-        page = browser.new_page()
-        results = {}
+	# shellcheck source=/dev/null
+	source "$VENV_DIR/bin/activate" 2>/dev/null || true
 
-        for site_key in selected:
-            if site_key not in test_sites:
-                continue
-            url = test_sites[site_key]
-            try:
-                page.goto(url, timeout=30000)
-                page.wait_for_timeout(5000)  # Wait for detection scripts
-                title = page.title()
-                # Take screenshot for verification
-                screenshot_path = f'/tmp/anti-detect-test-{site_key}.png'
-                page.screenshot(path=screenshot_path)
-                results[site_key] = {'status': 'OK', 'title': title, 'screenshot': screenshot_path}
-                print(f'  {site_key}: PASS - {title}')
-            except Exception as e:
-                results[site_key] = {'status': 'FAIL', 'error': str(e)}
-                print(f'  {site_key}: FAIL - {e}')
-
-        print()
-        print(f'Results: {len([r for r in results.values() if r[\"status\"]==\"OK\"])}/{len(results)} passed')
-        print(f'Screenshots saved to /tmp/anti-detect-test-*.png')
-else:
-    print('Chromium testing requires Node.js - use: anti-detect-helper.sh launch --engine chromium --url <test-url>')
-" 2>&1
+	if [[ "$engine" == "firefox" ]]; then
+		local profile_lines config_arg proxy_arg
+		profile_lines=$(test_detection_load_profile "$profile_name")
+		config_arg=$(printf '%s' "$profile_lines" | sed -n '1p')
+		proxy_arg=$(printf '%s' "$profile_lines" | sed -n '2p')
+		test_detection_run_firefox "$config_arg" "$proxy_arg" "$sites"
+	else
+		echo 'Chromium testing requires Node.js - use: anti-detect-helper.sh launch --engine chromium --url <test-url>'
+	fi
 
 	deactivate 2>/dev/null || true
 	return 0
@@ -932,23 +974,29 @@ else:
 
 # ─── Warmup ──────────────────────────────────────────────────────────────────
 
-warmup_profile() {
-	local profile_name="$1"
-	shift
-	local duration="30" # minutes
+# Parse --duration flag from remaining args; echoes numeric minutes (default 30).
+warmup_parse_duration() {
+	local duration="30"
 	local arg
-
 	while [[ $# -gt 0 ]]; do
 		arg="$1"
 		case "$arg" in
 		--duration)
-			duration="${2%m}" # Strip 'm' suffix
+			duration="${2%m}" # Strip optional 'm' suffix
 			shift 2
 			;;
 		*) shift ;;
 		esac
 	done
+	echo "$duration"
+	return 0
+}
 
+# Validate profile exists, activate venv, and resolve config/proxy paths.
+# Outputs two lines: config_arg and proxy_arg (may be empty).
+# Returns 1 on error (profile not found or venv missing).
+warmup_build_config() {
+	local profile_name="$1"
 	local profile_dir
 	profile_dir=$(find_profile_dir "$profile_name")
 
@@ -957,8 +1005,7 @@ warmup_profile() {
 		return 1
 	fi
 
-	echo -e "${BLUE}Warming up profile '$profile_name' for ${duration}m...${NC}"
-
+	# shellcheck source=/dev/null
 	source "$VENV_DIR/bin/activate" 2>/dev/null || {
 		echo -e "${RED}Error: Camoufox venv not found. Run: anti-detect-helper.sh setup${NC}" >&2
 		return 1
@@ -966,71 +1013,61 @@ warmup_profile() {
 
 	local config_arg=""
 	local proxy_arg=""
+	[[ -f "$profile_dir/fingerprint.json" ]] && config_arg="$profile_dir/fingerprint.json"
+	[[ -f "$profile_dir/proxy.json" ]] && proxy_arg="$profile_dir/proxy.json"
 
-	if [[ -f "$profile_dir/fingerprint.json" ]]; then
-		config_arg="$profile_dir/fingerprint.json"
-	fi
-	if [[ -f "$profile_dir/proxy.json" ]]; then
-		proxy_arg="$profile_dir/proxy.json"
-	fi
+	# Output as two lines so the caller can read them back
+	printf '%s\n%s\n' "$config_arg" "$proxy_arg"
+	return 0
+}
 
-	python3 -c "
-import json
-import asyncio
-import random
-import time
+# Write the Python warmup script to a temp file and return its path.
+# Args: profile_dir config_arg proxy_arg duration_minutes
+# Echoes the temp file path; caller must remove it after use.
+warmup_write_script() {
+	local profile_dir="$1"
+	local config_arg="$2"
+	local proxy_arg="$3"
+	local duration="$4"
+
+	local tmp_script
+	tmp_script=$(mktemp /tmp/warmup_XXXXXX.py)
+
+	cat >"$tmp_script" <<PYEOF
+import json, asyncio, random, time
 
 WARMUP_SITES = [
-    'https://www.google.com',
-    'https://www.youtube.com',
-    'https://www.wikipedia.org',
-    'https://www.reddit.com',
-    'https://www.amazon.com',
-    'https://news.ycombinator.com',
-    'https://www.github.com',
-    'https://stackoverflow.com',
-    'https://www.bbc.com',
-    'https://www.nytimes.com',
+    'https://www.google.com', 'https://www.youtube.com',
+    'https://www.wikipedia.org', 'https://www.reddit.com',
+    'https://www.amazon.com', 'https://news.ycombinator.com',
+    'https://www.github.com', 'https://stackoverflow.com',
+    'https://www.bbc.com', 'https://www.nytimes.com',
 ]
 
 async def warmup():
     from camoufox.async_api import AsyncCamoufox
-
-    profile_config = {}
-    proxy = None
-    config_file = '$config_arg'
-    proxy_file = '$proxy_arg'
-
+    profile_config, proxy = {}, None
+    config_file, proxy_file = '${config_arg}', '${proxy_arg}'
     if config_file:
-        with open(config_file) as f:
-            profile_config = json.load(f)
-
+        with open(config_file) as f: profile_config = json.load(f)
     if proxy_file:
-        with open(proxy_file) as f:
-            proxy = json.load(f)
-
+        with open(proxy_file) as f: proxy = json.load(f)
     kwargs = {'headless': True, 'humanize': True}
     os_list = profile_config.get('os')
-    if os_list:
-        kwargs['os'] = os_list
+    if os_list: kwargs['os'] = os_list
     screen_config = profile_config.get('screen')
     if screen_config:
         from browserforge.fingerprints import Screen
         kwargs['screen'] = Screen(
             max_width=screen_config.get('maxWidth', 1920),
-            max_height=screen_config.get('maxHeight', 1080),
-        )
+            max_height=screen_config.get('maxHeight', 1080))
     if proxy:
         kwargs['proxy'] = proxy
         kwargs['geoip'] = True
-
-    duration_seconds = $duration * 60
-    start_time = time.time()
-    sites_visited = 0
-
+    duration_seconds = ${duration} * 60
+    start_time, sites_visited = time.time(), 0
     async with AsyncCamoufox(**kwargs) as browser:
         page = await browser.new_page()
-
         while (time.time() - start_time) < duration_seconds:
             url = random.choice(WARMUP_SITES)
             try:
@@ -1038,42 +1075,73 @@ async def warmup():
                 sites_visited += 1
                 elapsed = int(time.time() - start_time)
                 print(f'  [{elapsed}s] Visited: {url}')
-
-                # Simulate reading
                 await asyncio.sleep(random.uniform(3, 12))
-
-                # Scroll
                 await page.evaluate('window.scrollBy(0, window.innerHeight * Math.random())')
                 await asyncio.sleep(random.uniform(1, 4))
-
-                # Maybe click a link
                 if random.random() > 0.6:
-                    links = await page.query_selector_all('a[href^=\"http\"]')
+                    links = await page.query_selector_all('a[href^="http"]')
                     if links and len(links) > 2:
                         link = random.choice(links[:8])
                         try:
                             await link.click(timeout=5000)
                             await asyncio.sleep(random.uniform(2, 6))
                             await page.go_back(timeout=5000)
-                        except Exception:
-                            pass
-
-            except Exception as e:
-                pass  # Skip failed navigations
-
+                        except Exception: pass
+            except Exception: pass
             await asyncio.sleep(random.uniform(2, 8))
-
-        # Save state
         context = browser.contexts[0]
         cookies = context.cookies()
         state = {'cookies': cookies, 'origins': []}
-        with open('$profile_dir/storage-state.json', 'w') as f:
+        with open('${profile_dir}/storage-state.json', 'w') as f:
             json.dump(state, f, indent=2)
-
-        print(f'\\nWarmup complete: {sites_visited} sites visited, {len(cookies)} cookies saved.')
+        print(f'\nWarmup complete: {sites_visited} sites visited, {len(cookies)} cookies saved.')
 
 asyncio.run(warmup())
-" 2>&1
+PYEOF
+
+	echo "$tmp_script"
+	return 0
+}
+
+# Execute the async Camoufox warmup browsing session.
+# Args: profile_dir config_arg proxy_arg duration_minutes
+warmup_run_browser() {
+	local profile_dir="$1"
+	local config_arg="$2"
+	local proxy_arg="$3"
+	local duration="$4"
+
+	local tmp_script
+	tmp_script=$(warmup_write_script "$profile_dir" "$config_arg" "$proxy_arg" "$duration")
+	python3 "$tmp_script" 2>&1
+	local exit_code=$?
+	rm -f "$tmp_script"
+	return $exit_code
+}
+
+warmup_profile() {
+	local profile_name="$1"
+	shift
+
+	local duration
+	duration=$(warmup_parse_duration "$@")
+
+	local profile_dir
+	profile_dir=$(find_profile_dir "$profile_name")
+	if [[ -z "$profile_dir" ]]; then
+		echo -e "${RED}Error: Profile '$profile_name' not found.${NC}" >&2
+		return 1
+	fi
+
+	echo -e "${BLUE}Warming up profile '$profile_name' for ${duration}m...${NC}"
+
+	local config_lines
+	config_lines=$(warmup_build_config "$profile_name") || return 1
+	local config_arg proxy_arg
+	config_arg=$(echo "$config_lines" | sed -n '1p')
+	proxy_arg=$(echo "$config_lines" | sed -n '2p')
+
+	warmup_run_browser "$profile_dir" "$config_arg" "$proxy_arg" "$duration"
 
 	deactivate 2>/dev/null || true
 	echo -e "${GREEN}Warmup complete for '$profile_name'.${NC}"

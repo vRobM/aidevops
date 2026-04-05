@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # ip-rep-ipqualityscore.sh — IPQualityScore provider for ip-reputation-helper.sh
 # Interface: check <ip> [--api-key <key>] → JSON result on stdout
 # Free tier: 5000 checks/month with API key
@@ -58,12 +60,9 @@ error_json() {
 	return 0
 }
 
-# Main check function
-cmd_check() {
+# Parse --api-key and --timeout flags; sets _api_key and _timeout in caller scope
+_parse_check_args() {
 	local ip="$1"
-	local api_key="${IPQUALITYSCORE_API_KEY:-}"
-	local timeout="$DEFAULT_TIMEOUT"
-
 	shift
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -72,7 +71,7 @@ cmd_check() {
 				echo "Error: --api-key requires a value" >&2
 				return 1
 			}
-			api_key="$2"
+			_api_key="$2"
 			shift 2
 			;;
 		--timeout)
@@ -80,7 +79,7 @@ cmd_check() {
 				echo "Error: --timeout requires a value" >&2
 				return 1
 			}
-			timeout="$2"
+			_timeout="$2"
 			shift 2
 			;;
 		*)
@@ -88,11 +87,14 @@ cmd_check() {
 			;;
 		esac
 	done
+	return 0
+}
 
-	if [[ -z "$api_key" ]]; then
-		error_json "$ip" "IPQUALITYSCORE_API_KEY not set — 5000 checks/month free at ipqualityscore.com"
-		return 0
-	fi
+# Fetch raw JSON from the IPQualityScore API; prints response or calls error_json
+_fetch_api_response() {
+	local ip="$1"
+	local api_key="$2"
+	local timeout="$3"
 
 	local response
 	response=$(curl -sf \
@@ -101,23 +103,31 @@ cmd_check() {
 		"${API_BASE}/${api_key}/${ip}?strictness=1&allow_public_access_points=true&fast=false&lighter_penalties=false&mobile=false" \
 		2>/dev/null) || {
 		error_json "$ip" "curl request failed"
-		return 0
+		return 1
 	}
 
 	if ! echo "$response" | jq empty 2>/dev/null; then
 		error_json "$ip" "invalid JSON response"
-		return 0
+		return 1
 	fi
 
-	# Check for API errors
 	local success
 	success=$(echo "$response" | jq -r '.success // true')
 	if [[ "$success" == "false" ]]; then
 		local api_error
 		api_error=$(echo "$response" | jq -r '.message // "API error"')
 		error_json "$ip" "$api_error"
-		return 0
+		return 1
 	fi
+
+	echo "$response"
+	return 0
+}
+
+# Extract scored fields from a valid API response; prints JSON result object
+_build_result_json() {
+	local ip="$1"
+	local response="$2"
 
 	local score is_proxy is_vpn is_tor is_bot country isp
 	score=$(echo "$response" | jq -r '.fraud_score // 0')
@@ -163,6 +173,26 @@ cmd_check() {
             isp: $isp,
             raw: $raw
         }'
+	return 0
+}
+
+# Main check function
+cmd_check() {
+	local ip="$1"
+	local _api_key="${IPQUALITYSCORE_API_KEY:-}"
+	local _timeout="$DEFAULT_TIMEOUT"
+
+	_parse_check_args "$@" || return 1
+
+	if [[ -z "$_api_key" ]]; then
+		error_json "$ip" "IPQUALITYSCORE_API_KEY not set — 5000 checks/month free at ipqualityscore.com"
+		return 0
+	fi
+
+	local response
+	response=$(_fetch_api_response "$ip" "$_api_key" "$_timeout") || return 0
+
+	_build_result_json "$ip" "$response"
 	return 0
 }
 

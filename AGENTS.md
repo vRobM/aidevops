@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # AI DevOps Framework - Developer Guide
 
 <!-- AI-CONTEXT-START -->
@@ -6,8 +9,8 @@
 
 - **User Guide**: `.agents/AGENTS.md` (deployed to `~/.aidevops/agents/`)
 - **Commands**: `./setup.sh` (deploy) | `.agents/scripts/linters-local.sh` (quality) | `.agents/scripts/version-manager.sh release [major|minor|patch]`
-- **Config**: `~/.config/opencode/opencode.json`, `~/.claude/settings.json`
-- **Quality**: `prompts/build.txt`
+- **Config**: Runtime-specific (see `.agents/AGENTS.md` "Runtime-Specific References")
+- **Quality**: `.agents/prompts/build.txt`
 
 **File Structure**: `TODO.md` (tasks), `todo/` (plans, PRDs), `.agents/` (agents, tools, services, workflows, scripts).
 

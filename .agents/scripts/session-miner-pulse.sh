@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # session-miner-pulse.sh — Daily self-improvement pulse
 #
 # Extracts learning signals from coding assistant session data,
@@ -162,37 +164,39 @@ run_compression() {
 	return $?
 }
 
-generate_summary() {
+# _summary_print_header prints the pulse summary header with steerage and error counts.
+_summary_print_header() {
 	local compressed_file="$1"
-
-	if [[ ! -f "${compressed_file}" ]]; then
-		log_error "Compressed signals file not found"
-		return 1
-	fi
-
-	# Extract key metrics using python for JSON parsing
 	python3 -c "
-import json, sys
+import json
 from pathlib import Path
-
 data = json.loads(Path('${compressed_file}').read_text())
-
 steerage = data.get('steerage', {})
 errors = data.get('errors', {}).get('patterns', [])
 total_steerage = sum(len(v) for v in steerage.values())
-
-# Top error patterns (>10 occurrences)
 top_errors = [p for p in errors if p['count'] > 10]
-top_errors.sort(key=lambda x: -x['count'])
-
-# Steerage category counts
-cat_counts = {k: len(v) for k, v in steerage.items()}
-
 print('## Session Miner Pulse Summary')
 print()
 print(f'Unique steerage signals: {total_steerage}')
 print(f'Error patterns (>10 occurrences): {len(top_errors)}')
 print()
+" 2>/dev/null
+	return $?
+}
+
+# _summary_print_error_patterns prints top error patterns and steerage categories,
+# plus suggested harness improvements for uncovered high-frequency errors.
+_summary_print_error_patterns() {
+	local compressed_file="$1"
+	python3 -c "
+import json
+from pathlib import Path
+data = json.loads(Path('${compressed_file}').read_text())
+steerage = data.get('steerage', {})
+errors = data.get('errors', {}).get('patterns', [])
+top_errors = [p for p in errors if p['count'] > 10]
+top_errors.sort(key=lambda x: -x['count'])
+cat_counts = {k: len(v) for k, v in steerage.items()}
 
 if top_errors:
     print('### Top Error Patterns')
@@ -208,7 +212,6 @@ if cat_counts:
         print(f'  {cat}: {count}')
     print()
 
-# Flag high-frequency errors not yet in harness
 harness_covered = {'edit_stale_read', 'not_read_first', 'edit_mismatch'}
 uncovered = [p for p in top_errors if p['error_category'] not in harness_covered]
 if uncovered:
@@ -216,42 +219,102 @@ if uncovered:
     for p in uncovered[:5]:
         print(f'  - {p[\"tool\"]}:{p[\"error_category\"]} ({p[\"count\"]}x) — consider adding prevention rule')
     print()
-
-# Git correlation / productivity analysis
-git_data = data.get('git_correlation', {})
-git_summary = git_data.get('summary', {})
-if git_summary:
-    total_s = git_summary.get('total_sessions', 0)
-    productive_s = git_summary.get('productive_sessions', 0)
-    rate = git_summary.get('productivity_rate', 0)
-    total_commits = git_summary.get('total_commits', 0)
-    avg_cpm = git_summary.get('avg_commits_per_message', 0)
-    print('### Git Productivity')
-    print(f'  Sessions with git data: {total_s}')
-    print(f'  Productive sessions (>=1 commit): {productive_s} ({rate:.0%})')
-    print(f'  Total commits: {total_commits}')
-    print(f'  Avg commits/message (productive): {avg_cpm:.3f}')
-    print()
-
-    # Per-project breakdown
-    project_stats = git_data.get('project_stats', {})
-    if project_stats:
-        print('### Productivity by Project')
-        for project, ps in sorted(project_stats.items(), key=lambda x: -x[1].get('total_commits', 0))[:10]:
-            print(f'  {project}: {ps[\"productive_sessions\"]}/{ps[\"sessions\"]} productive, '
-                  f'{ps[\"total_commits\"]} commits, {ps[\"total_lines_changed\"]} lines')
-        print()
-
-    # Top productive sessions
-    top_sessions = git_data.get('top_productive_sessions', [])
-    if top_sessions:
-        print('### Most Productive Sessions')
-        for s in top_sessions[:5]:
-            print(f'  {s[\"title\"][:60]} — {s[\"commits\"]} commits/{s[\"messages\"]} msgs '
-                  f'(ratio: {s[\"ratio\"]:.2f}, {s[\"duration_min\"]:.0f}min)')
-        print()
 " 2>/dev/null
 	return $?
+}
+
+# _summary_print_git_productivity prints git correlation and per-project productivity stats.
+_summary_print_git_productivity() {
+	local compressed_file="$1"
+	python3 -c "
+import json
+from pathlib import Path
+data = json.loads(Path('${compressed_file}').read_text())
+git_data = data.get('git_correlation', {})
+git_summary = git_data.get('summary', {})
+if not git_summary:
+    raise SystemExit(0)
+
+total_s = git_summary.get('total_sessions', 0)
+productive_s = git_summary.get('productive_sessions', 0)
+rate = git_summary.get('productivity_rate', 0)
+total_commits = git_summary.get('total_commits', 0)
+avg_cpm = git_summary.get('avg_commits_per_message', 0)
+print('### Git Productivity')
+print(f'  Sessions with git data: {total_s}')
+print(f'  Productive sessions (>=1 commit): {productive_s} ({rate:.0%})')
+print(f'  Total commits: {total_commits}')
+print(f'  Avg commits/message (productive): {avg_cpm:.3f}')
+print()
+
+project_stats = git_data.get('project_stats', {})
+if project_stats:
+    print('### Productivity by Project')
+    for project, ps in sorted(project_stats.items(), key=lambda x: -x[1].get('total_commits', 0))[:10]:
+        print(f'  {project}: {ps[\"productive_sessions\"]}/{ps[\"sessions\"]} productive, '
+              f'{ps[\"total_commits\"]} commits, {ps[\"total_lines_changed\"]} lines')
+    print()
+
+top_sessions = git_data.get('top_productive_sessions', [])
+if top_sessions:
+    print('### Most Productive Sessions')
+    for s in top_sessions[:5]:
+        print(f'  {s[\"title\"][:60]} — {s[\"commits\"]} commits/{s[\"messages\"]} msgs '
+              f'(ratio: {s[\"ratio\"]:.2f}, {s[\"duration_min\"]:.0f}min)')
+    print()
+" 2>/dev/null
+	return $?
+}
+
+# _summary_print_instruction_candidates prints detected instruction candidates per target file.
+_summary_print_instruction_candidates() {
+	local compressed_file="$1"
+	python3 -c "
+import json
+from pathlib import Path
+data = json.loads(Path('${compressed_file}').read_text())
+instruction_candidates = data.get('instruction_candidates', {})
+total_candidates = sum(len(v) for v in instruction_candidates.values())
+if total_candidates == 0:
+    raise SystemExit(0)
+
+print('### Instruction Candidates')
+print(f'  Total: {total_candidates} candidate(s) detected across sessions')
+print()
+for target_file, candidates in sorted(instruction_candidates.items()):
+    if not candidates:
+        continue
+    print(f'  Target: {target_file} ({len(candidates)} candidate(s))')
+    for c in candidates[:5]:
+        conf = c.get('confidence', 0)
+        cat = c.get('category', 'general')
+        text = c.get('text', '')[:120].replace('\n', ' ')
+        session = c.get('session_title', '')[:40]
+        print(f'    [{conf:.0%} {cat}] \"{text}\"')
+        if session:
+            print(f'      (from: {session})')
+    if len(candidates) > 5:
+        print(f'    ... and {len(candidates) - 5} more')
+    print()
+" 2>/dev/null
+	return $?
+}
+
+# generate_summary prints a human-readable pulse summary from a compressed signals file.
+# Delegates to focused helpers: header, error patterns, git productivity, instruction candidates.
+generate_summary() {
+	local compressed_file="$1"
+
+	if [[ ! -f "${compressed_file}" ]]; then
+		log_error "Compressed signals file not found"
+		return 1
+	fi
+
+	_summary_print_header "${compressed_file}" || return 1
+	_summary_print_error_patterns "${compressed_file}" || return 1
+	_summary_print_git_productivity "${compressed_file}" || true
+	_summary_print_instruction_candidates "${compressed_file}" || true
+	return 0
 }
 
 generate_feedback_actions() {
@@ -433,6 +496,31 @@ if delta_lines:
 else:
     lines.append("- No count changes detected from previous pulse")
 
+# Instruction candidates section
+instruction_candidates = data.get("instruction_candidates", {})
+total_candidates = sum(len(v) for v in instruction_candidates.values())
+lines.extend(["", "## Instruction Candidates"])
+if total_candidates > 0:
+    lines.append(f"Total: {total_candidates} candidate(s) detected — review and add to instruction files as appropriate.")
+    lines.append("")
+    for target_file, candidates in sorted(instruction_candidates.items()):
+        if not candidates:
+            continue
+        lines.append(f"### {target_file} ({len(candidates)} candidate(s))")
+        for c in candidates[:10]:
+            conf = c.get("confidence", 0)
+            cat = c.get("category", "general")
+            text = c.get("text", "")[:200].replace("\n", " ")
+            session = c.get("session_title", "")[:60]
+            lines.append(f"- [{conf:.0%} / {cat}] {text}")
+            if session:
+                lines.append(f"  _(from session: {session})_")
+        if len(candidates) > 10:
+            lines.append(f"- ... and {len(candidates) - 10} more (see compressed_signals.json)")
+        lines.append("")
+else:
+    lines.append("- No instruction candidates detected in this pulse")
+
 report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 print(f"Generated {len(actions)} action candidates")
 print(f"Actions file: {actions_path}")
@@ -537,30 +625,31 @@ PY
 	return $?
 }
 
-# --- Main ---
+# --- Main helpers ---
 
-main() {
-	local db_override=""
-	local dry_run=false
-	local force=false
-	local create_issues=false
+# parse_args sets script-level variables: _db_override, _dry_run, _force, _create_issues
+parse_args() {
+	_db_override=""
+	_dry_run=false
+	_force=false
+	_create_issues=false
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--db)
-			db_override="$2"
+			_db_override="$2"
 			shift 2
 			;;
 		--dry-run)
-			dry_run=true
+			_dry_run=true
 			shift
 			;;
 		--force)
-			force=true
+			_force=true
 			shift
 			;;
 		--create-issues)
-			create_issues=true
+			_create_issues=true
 			shift
 			;;
 		--since)
@@ -573,8 +662,10 @@ main() {
 			;;
 		esac
 	done
+	return 0
+}
 
-	# Ensure extractor/compressor are in workspace
+sync_scripts() {
 	mkdir -p "${MINER_DIR}"
 	if [[ -f "${EXTRACTOR_SRC}" ]] && [[ ! -f "${EXTRACTOR}" || "${EXTRACTOR_SRC}" -nt "${EXTRACTOR}" ]]; then
 		cp "${EXTRACTOR_SRC}" "${EXTRACTOR}"
@@ -582,22 +673,13 @@ main() {
 	if [[ -f "${COMPRESSOR_SRC}" ]] && [[ ! -f "${COMPRESSOR}" || "${COMPRESSOR_SRC}" -nt "${COMPRESSOR}" ]]; then
 		cp "${COMPRESSOR_SRC}" "${COMPRESSOR}"
 	fi
+	return 0
+}
 
-	# Check interval (skip if too recent, unless forced)
-	if [[ "${force}" != true ]]; then
-		check_interval || return 0
-	fi
-
-	# Acquire lock
-	check_lock || return 0
-	trap release_lock EXIT
-
-	# Find database
-	local db_path
-	db_path=$(detect_db "${db_override}") || return 1
-	log_info "Using database: ${db_path}"
-
-	# Check DB size
+# validate_db_size checks the DB is large enough to mine.
+# Prints the db_path on success; returns 1 if too small or not found.
+validate_db_size() {
+	local db_path="$1"
 	local db_size
 	# Cross-platform file size: Linux (stat -c) first, macOS (stat -f) fallback
 	db_size=$(stat -c %s "${db_path}" 2>/dev/null || stat -f %z "${db_path}" 2>/dev/null || echo 0)
@@ -605,60 +687,64 @@ main() {
 	[[ "${db_size}" =~ ^[0-9]+$ ]] || db_size=0
 	if [[ "${db_size}" -lt 1000 ]]; then
 		log_info "Database too small (${db_size} bytes). Nothing to mine."
-		release_lock
-		return 0
+		return 1
 	fi
+	return 0
+}
 
-	# Create output directory for this run
+# run_pipeline runs extraction + compression and verifies output.
+# Sets _output_dir, _compressed_file, _feedback_actions_file,
+# _feedback_report_file, _feedback_metrics_file on success.
+run_pipeline() {
+	local db_path="$1"
+
 	local run_ts
 	run_ts=$(date +%Y%m%d_%H%M%S)
-	local output_dir="${MINER_DIR}/pulse_${run_ts}"
-	mkdir -p "${output_dir}"
+	_output_dir="${MINER_DIR}/pulse_${run_ts}"
+	mkdir -p "${_output_dir}"
 
-	# Run extraction
 	local extract_output
-	extract_output=$(run_extraction "${db_path}" "${output_dir}" 2>&1) || {
+	extract_output=$(run_extraction "${db_path}" "${_output_dir}" 2>&1) || {
 		log_error "Extraction failed: ${extract_output}"
-		release_lock
 		return 1
 	}
 
-	# Find the chunks directory (extract.py creates a timestamped subdir)
 	local chunks_dir
-	chunks_dir=$(find "${output_dir}" -maxdepth 1 -type d -name "chunks_*" | head -1)
+	chunks_dir=$(find "${_output_dir}" -maxdepth 1 -type d -name "chunks_*" | head -1)
 	if [[ -z "${chunks_dir}" ]]; then
-		log_error "No chunks directory found in ${output_dir}"
-		release_lock
+		log_error "No chunks directory found in ${_output_dir}"
 		return 1
 	fi
 
-	# Run compression
 	run_compression "${chunks_dir}" 2>&1 || {
 		log_error "Compression failed"
-		release_lock
 		return 1
 	}
 
-	local compressed_file="${output_dir}/compressed_signals.json"
-	local feedback_actions_file="${MINER_DIR}/feedback_actions.json"
-	local feedback_report_file="${MINER_DIR}/feedback_actions.md"
-	local feedback_metrics_file="${MINER_DIR}/feedback_metrics.json"
+	_compressed_file="${_output_dir}/compressed_signals.json"
+	_feedback_actions_file="${MINER_DIR}/feedback_actions.json"
+	_feedback_report_file="${MINER_DIR}/feedback_actions.md"
+	_feedback_metrics_file="${MINER_DIR}/feedback_metrics.json"
 
-	# Verify compressed output exists before proceeding
-	if [[ ! -f "${compressed_file}" ]]; then
-		log_error "Compressed signals file not produced at ${compressed_file}"
-		release_lock
+	if [[ ! -f "${_compressed_file}" ]]; then
+		log_error "Compressed signals file not produced at ${_compressed_file}"
 		return 1
 	fi
+	return 0
+}
 
-	# Generate summary
+# output_results prints summary and feedback, optionally creates issues,
+# and records the pulse timestamp when not in dry-run mode.
+output_results() {
+	local dry_run="$1"
+	local create_issues="$2"
+
 	local summary
-	summary=$(generate_summary "${compressed_file}" 2>&1)
+	summary=$(generate_summary "${_compressed_file}" 2>&1)
 
 	local feedback_output
-	feedback_output=$(generate_feedback_actions "${compressed_file}" "${feedback_actions_file}" "${feedback_report_file}" "${feedback_metrics_file}" 2>&1) || {
+	feedback_output=$(generate_feedback_actions "${_compressed_file}" "${_feedback_actions_file}" "${_feedback_report_file}" "${_feedback_metrics_file}" 2>&1) || {
 		log_error "Feedback action generation failed: ${feedback_output}"
-		release_lock
 		return 1
 	}
 
@@ -667,32 +753,77 @@ main() {
 		echo "${summary}"
 		echo "${feedback_output}"
 		if [[ "${create_issues}" == true ]]; then
-			create_feedback_issues "${feedback_actions_file}" "${dry_run}" || true
+			create_feedback_issues "${_feedback_actions_file}" "${dry_run}" || true
 		fi
 		echo "--- Would log TODO suggestions to relevant repos ---"
 	else
 		echo "${summary}"
 		echo "${feedback_output}"
 		if [[ "${create_issues}" == true ]]; then
-			create_feedback_issues "${feedback_actions_file}" "${dry_run}" || true
+			create_feedback_issues "${_feedback_actions_file}" "${dry_run}" || true
 		fi
 		record_pulse
-		log_info "Pulse complete. Output: ${output_dir}"
-		log_info "Compressed signals: ${compressed_file}"
-		log_info "Feedback actions: ${feedback_actions_file}"
-		log_info "Feedback report: ${feedback_report_file}"
-		log_info "Run 'opencode run --dir ~/Git/REPO --title \"Session miner analysis\" \"Analyse ${compressed_file} against the current harness and suggest improvements\"' for deep analysis."
+		log_info "Pulse complete. Output: ${_output_dir}"
+		log_info "Compressed signals: ${_compressed_file}"
+		log_info "Feedback actions: ${_feedback_actions_file}"
+		log_info "Feedback report: ${_feedback_report_file}"
+		log_info "Run 'opencode run --dir ~/Git/REPO --title \"Session miner analysis\" \"Analyse ${_compressed_file} against the current harness and suggest improvements\"' for deep analysis."
 	fi
+	return 0
+}
 
-	# Clean up old pulse directories (keep last 7)
+cleanup_old_pulses() {
 	local old_dirs
-	old_dirs=$(find "${MINER_DIR}" -maxdepth 1 -type d -name "pulse_*" | sort | head -n -7 2>/dev/null || true)
+	# head -n -7 is GNU-only; use awk to keep all except the last 7 (newest) entries
+	old_dirs=$(find "${MINER_DIR}" -maxdepth 1 -type d -name "pulse_*" | sort | awk -v n=7 '{a[NR]=$0} END{for(i=1;i<=NR-n;i++) print a[i]}' 2>/dev/null || true)
 	if [[ -n "${old_dirs}" ]]; then
 		echo "${old_dirs}" | while read -r dir; do
 			rm -rf "${dir}"
 		done
 		log_info "Cleaned up old pulse directories"
 	fi
+	return 0
+}
+
+# --- Main ---
+
+main() {
+	parse_args "$@" || return 1
+
+	sync_scripts
+
+	# Check interval (skip if too recent, unless forced)
+	if [[ "${_force}" != true ]]; then
+		check_interval || return 0
+	fi
+
+	# Acquire lock
+	check_lock || return 0
+	trap release_lock EXIT
+
+	# Find and validate database
+	local db_path
+	db_path=$(detect_db "${_db_override}") || return 1
+	log_info "Using database: ${db_path}"
+
+	validate_db_size "${db_path}" || {
+		release_lock
+		return 0
+	}
+
+	# Run extraction + compression pipeline
+	run_pipeline "${db_path}" || {
+		release_lock
+		return 1
+	}
+
+	# Output results (summary, feedback, optional issue creation)
+	output_results "${_dry_run}" "${_create_issues}" || {
+		release_lock
+		return 1
+	}
+
+	cleanup_old_pulses
 
 	return 0
 }

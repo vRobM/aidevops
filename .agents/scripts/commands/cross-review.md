@@ -4,75 +4,36 @@ agent: Build+
 mode: subagent
 ---
 
-Dispatch a prompt to multiple AI models in parallel, collect and diff their responses, and optionally score them via a judge model.
-
-Target: $ARGUMENTS
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
 
 ## Instructions
 
-1. Parse the user's arguments. Common forms:
+1. Parse `$ARGUMENTS` — extract `--prompt`, `--models`, `--score`, `--judge`, `--timeout`. Run:
 
    ```bash
-   /cross-review "review this PR diff" --models sonnet,opus
-   /cross-review "audit this code" --models sonnet,gemini-pro,gpt-4.1 --score
-   /cross-review "design this API" --score --judge opus
-   ```
-
-2. Run the cross-review:
-
-   ```bash
-   # Basic cross-review (diff only)
-   ~/.aidevops/agents/scripts/compare-models-helper.sh cross-review \
-     --prompt "your prompt here" \
-     --models "sonnet,opus"
-
-   # With auto-scoring via judge model (default judge: opus)
-   ~/.aidevops/agents/scripts/compare-models-helper.sh cross-review \
-     --prompt "your prompt here" \
-     --models "sonnet,gemini-pro,gpt-4.1" \
-     --score
-
-   # With custom judge model
    ~/.aidevops/agents/scripts/compare-models-helper.sh cross-review \
      --prompt "your prompt here" \
      --models "sonnet,opus" \
-     --score --judge sonnet
+     [--score] [--judge sonnet]
    ```
 
-3. Present the results:
-   - Show each model's response summary
-   - Show the diff between responses (for 2-model comparisons)
-   - If `--score` was used, show the judge's structured scores and winner declaration
-   - Note any models that failed to respond
-
-4. If `--score` was used, scores are automatically:
-   - Recorded in the model-comparisons SQLite DB
-   - Fed into the pattern tracker for model routing (`/route`, `/patterns`)
+2. Present: each model's response summary, diff (2-model comparisons), judge scores and winner if `--score` used, note failures. Scores recorded in model-comparisons SQLite DB, fed into pattern tracker (`/route`, `/patterns`).
 
 ## Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--models` | `sonnet,opus` | Comma-separated model tiers to compare |
+| `--models` | `sonnet,opus` | Comma-separated tiers: `haiku`, `flash`, `sonnet`, `pro`, `opus`, or full IDs like `gemini-2.5-pro` |
 | `--score` | off | Auto-score outputs via judge model |
 | `--judge` | `opus` | Judge model tier (used with `--score`) |
 | `--timeout` | `600` | Seconds per model |
 | `--output` | auto | Directory for raw outputs |
 | `--workdir` | `pwd` | Working directory for model context |
 
-## Model Tiers
+## Scoring Criteria (judge model, 1-10)
 
-`haiku`, `flash`, `sonnet`, `pro`, `opus` — or full model IDs like `gemini-2.5-pro`, `gpt-4.1`
-
-## Scoring Criteria (judge model, 1-10 scale)
-
-| Criterion | Description |
-|-----------|-------------|
-| correctness | Factual accuracy and technical correctness |
-| completeness | Coverage of all requirements and edge cases |
-| quality | Code quality, best practices, maintainability |
-| clarity | Clear explanation, good formatting, readability |
-| adherence | Following the original prompt instructions precisely |
+`correctness` · `completeness` · `quality` · `clarity` · `adherence`
 
 ## Examples
 

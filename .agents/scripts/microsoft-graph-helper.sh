@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2034,SC2155
 # microsoft-graph-helper.sh - Microsoft Graph API adapter for Outlook/365 shared mailboxes
 #
@@ -506,7 +508,7 @@ graph_request() {
 	local response http_code
 	response=$(curl "${curl_args[@]}" -w "\n%{http_code}" 2>/dev/null)
 	http_code=$(echo "$response" | tail -1)
-	response=$(echo "$response" | head -n -1)
+	response=$(echo "$response" | sed '$d')
 
 	if [[ "$http_code" -ge 400 ]]; then
 		local error_msg

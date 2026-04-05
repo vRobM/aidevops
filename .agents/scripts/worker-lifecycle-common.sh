@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # worker-lifecycle-common.sh — Shared process lifecycle functions
 #
 # Extracted from pulse-wrapper.sh (t1419) so that both pulse-wrapper.sh and
@@ -17,8 +19,15 @@
 #   _sanitize_log_field()     Strip control characters from log fields
 #   _sanitize_markdown()      Strip @ mentions and backticks from markdown
 #   _validate_int()           Validate and sanitize integer config values
+#   _count_worker_commits()   Count commits in a worktree since elapsed seconds ago
+#   _count_worker_messages()  Count session DB messages for a worker
+#   _determine_struggle_flag() Determine struggle flag from ratio/commit/elapsed metrics
 #   _compute_struggle_ratio() Compute messages/commits ratio for a worker
 #   _format_duration()        Format seconds into human-readable duration
+#
+# Companion files:
+#   session_tail_query.py     Extracted Python logic for session tail
+#                             classification (GH#6428)
 #
 # Usage: source worker-lifecycle-common.sh
 #
@@ -82,18 +91,14 @@ PY
 }
 
 #######################################
-# Summarise the recent OpenCode transcript tail for a worker session
+# Validate preconditions for session tail evidence collection
 # Arguments:
 #   $1 - worker command line
-#   $2 - recent activity timeout seconds
-#   $3 - maximum parts to inspect (optional, default: 8)
-# Returns: "classification|summary" where classification is one of
-#   active, provider-waiting, stalled, none
+# Outputs: "db_path|session_title" on success, or "none|<reason>" on failure
+# Returns: 0 always (caller checks output prefix)
 #######################################
-_get_session_tail_evidence() {
+_get_session_tail_preconditions() {
 	local cmd="$1"
-	local timeout_seconds="$2"
-	local part_limit="${3:-8}"
 	local db_path session_title
 	db_path=$(_opencode_db_path)
 	session_title=$(_extract_session_title "$cmd")
@@ -108,146 +113,87 @@ _get_session_tail_evidence() {
 		return 0
 	fi
 
+	printf '%s|%s' "$db_path" "$session_title"
+	return 0
+}
+
+#######################################
+# Python script: query OpenCode DB and classify session tail.
+# Reads env vars: SESSION_TAIL_DB_PATH, SESSION_TAIL_TITLE,
+#   SESSION_TAIL_TIMEOUT, SESSION_TAIL_LIMIT
+# Returns: "classification|summary" via stdout
+#
+# Logic extracted to session_tail_query.py for testability and to
+# keep this function under the 100-line complexity threshold (GH#6428).
+#######################################
+_run_session_tail_python() {
+	local script_dir
+	script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	local py_script="${script_dir}/session_tail_query.py"
+
+	if [[ ! -f "$py_script" ]]; then
+		echo "none|session_tail_query.py not found at ${py_script}" >&2
+		printf '%s' "none|session_tail_query.py missing"
+		return 1
+	fi
+
+	python3 "$py_script"
+	return 0
+}
+
+#######################################
+# Set env vars and invoke the session tail Python script
+# Arguments:
+#   $1 - db_path
+#   $2 - session_title
+#   $3 - timeout_seconds
+#   $4 - part_limit
+# Returns: "classification|summary" via stdout
+#######################################
+_query_session_tail() {
+	local db_path="$1"
+	local session_title="$2"
+	local timeout_seconds="$3"
+	local part_limit="$4"
+
 	SESSION_TAIL_DB_PATH="$db_path" \
 		SESSION_TAIL_TITLE="$session_title" \
 		SESSION_TAIL_TIMEOUT="$timeout_seconds" \
 		SESSION_TAIL_LIMIT="$part_limit" \
-		python3 - <<'PY'
-import json
-import os
-import re
-import sqlite3
-import time
+		_run_session_tail_python
+	return 0
+}
 
-db_path = os.environ["SESSION_TAIL_DB_PATH"]
-session_title = os.environ["SESSION_TAIL_TITLE"]
-timeout_seconds = int(os.environ["SESSION_TAIL_TIMEOUT"])
-part_limit = int(os.environ["SESSION_TAIL_LIMIT"])
+#######################################
+# Summarise the recent OpenCode transcript tail for a worker session
+# Arguments:
+#   $1 - worker command line
+#   $2 - recent activity timeout seconds
+#   $3 - maximum parts to inspect (optional, default: 8)
+# Returns: "classification|summary" where classification is one of
+#   active, provider-waiting, stalled, none
+#######################################
+_get_session_tail_evidence() {
+	local cmd="$1"
+	local timeout_seconds="$2"
+	local part_limit="${3:-8}"
 
-provider_markers = (
-    "rate limit",
-    "rate-limit",
-    "429",
-    "backoff",
-    "retrying",
-    "retry after",
-    "overloaded",
-    "temporarily unavailable",
-    "connection reset",
-    "timed out",
-    "timeout",
-    "econnreset",
-    "etimedout",
-    "service unavailable",
-)
+	local preconditions
+	preconditions=$(_get_session_tail_preconditions "$cmd")
 
-def collapse(value: str, limit: int = 120) -> str:
-    value = re.sub(r"\s+", " ", value or "").strip()
-    if len(value) > limit:
-        value = value[: limit - 3] + "..."
-    return value.replace("|", "/")
+	# Early-exit if preconditions returned a "none|..." failure
+	case "$preconditions" in
+	none\|*)
+		printf '%s' "$preconditions"
+		return 0
+		;;
+	esac
 
-try:
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA busy_timeout=5000")
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, title
-        FROM session
-        WHERE title LIKE ?
-        ORDER BY time_created DESC
-        LIMIT 1
-        """,
-        (f"%{session_title}%",),
-    )
-    session_row = cursor.fetchone()
-    if not session_row:
-        print("none|No OpenCode session found")
-        raise SystemExit(0)
+	local db_path session_title
+	db_path="${preconditions%%|*}"
+	session_title="${preconditions#*|}"
 
-    session_id, resolved_title = session_row
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM message
-        WHERE session_id = ?
-          AND (CASE WHEN time_created > 20000000000 THEN time_created / 1000 ELSE time_created END) > strftime('%s', 'now') - ?
-        """,
-        (session_id, timeout_seconds),
-    )
-    recent_count = int(cursor.fetchone()[0] or 0)
-
-    cursor.execute(
-        """
-        SELECT data, time_created
-        FROM part
-        WHERE session_id = ?
-        ORDER BY time_created DESC
-        LIMIT ?
-        """,
-        (session_id, part_limit),
-    )
-    part_rows = list(reversed(cursor.fetchall()))
-except sqlite3.Error as exc:
-    print(f"none|Session evidence query failed: {collapse(str(exc), 120)}")
-    raise SystemExit(0)
-
-entries = []
-search_blob = []
-newest_part_time = 0
-
-for raw_data, part_time in part_rows:
-    newest_part_time = max(newest_part_time, int(part_time or 0))
-    data = json.loads(raw_data)
-    part_type = data.get("type", "unknown")
-
-    if part_type == "text":
-        preview = collapse(data.get("text", ""))
-        if preview:
-            entries.append(f'text:"{preview}"')
-            search_blob.append(preview.lower())
-    elif part_type == "tool":
-        state = data.get("state", {})
-        status = collapse(str(state.get("status", "unknown")), 24)
-        description = collapse(str(state.get("input", {}).get("description", "")))
-        tool_name = collapse(str(data.get("tool", "tool")), 32)
-        if description:
-            entries.append(f'tool:{tool_name}({status}) "{description}"')
-            search_blob.append(description.lower())
-        else:
-            entries.append(f"tool:{tool_name}({status})")
-    elif part_type == "step-finish":
-        reason = collapse(str(data.get("reason", "done")), 32)
-        entries.append(f"step-finish:{reason}")
-    elif part_type == "step-start":
-        entries.append("step-start")
-    elif part_type == "reasoning":
-        entries.append("reasoning")
-    else:
-        entries.append(collapse(part_type, 32))
-
-if not entries:
-    entries.append("no-parts")
-
-joined_blob = " ".join(search_blob)
-if recent_count > 0:
-    classification = "active"
-elif any(marker in joined_blob for marker in provider_markers):
-    classification = "provider-waiting"
-else:
-    classification = "stalled"
-
-age_seconds = max(0, int(time.time()) - newest_part_time) if newest_part_time else -1
-tail_summary = " > ".join(entries[-5:])
-summary = (
-    f'session="{collapse(resolved_title, 80)}"; '
-    f"recent_messages={recent_count}; "
-    f"newest_part_age={age_seconds}s; "
-    f"tail={tail_summary}"
-)
-print(f"{classification}|{summary}")
-PY
+	_query_session_tail "$db_path" "$session_title" "$timeout_seconds" "$part_limit"
 	return 0
 }
 
@@ -658,6 +604,108 @@ _validate_int() {
 }
 
 #######################################
+# Count commits in a worktree since a given number of seconds ago (GH#17078)
+# Arguments:
+#   $1 - worktree directory path
+#   $2 - elapsed seconds (time window for git log)
+# Returns: integer commit count via stdout
+#######################################
+_count_worker_commits() {
+	local worktree_dir="$1"
+	local elapsed_seconds="$2"
+	local commits=0
+
+	if [[ -d "${worktree_dir}/.git" || -f "${worktree_dir}/.git" ]]; then
+		# Use (cmd || true) pattern for set -e safety — ensures the pipeline
+		# always succeeds and stderr remains visible for debugging (GH#4010)
+		commits=$( (git -C "$worktree_dir" log --oneline --since="${elapsed_seconds} seconds ago" || true) | wc -l | tr -d ' ')
+	fi
+
+	echo "$commits"
+	return 0
+}
+
+#######################################
+# Count session messages from the OpenCode DB for a worker (GH#17078)
+# Arguments:
+#   $1 - worker command line
+#   $2 - elapsed seconds (time window for message query)
+# Output: "available|<count>" or "unavailable|0"
+#   "available" means the DB was found and queried
+#   "unavailable" means no DB — caller must return n/a (GH#11278)
+#######################################
+_count_worker_messages() {
+	local cmd="$1"
+	local elapsed_seconds="$2"
+	local db_path="${HOME}/.local/share/opencode/opencode.db"
+
+	# When neither DB is available, return unavailable — NEVER fabricate message
+	# counts from elapsed time. The old heuristic (messages = elapsed_minutes × 2)
+	# produced false positives: a 19-minute worker could be reported as "17h
+	# with struggle_ratio: 48" when the process age was inherited from a
+	# long-lived parent or stale worktree. See GH#11278.
+	if [[ ! -f "$db_path" ]]; then
+		echo "unavailable|0"
+		return 0
+	fi
+
+	local session_id messages=0
+	session_id=$(_resolve_session_id_from_cmd "$cmd")
+
+	if [[ -n "$session_id" ]]; then
+		messages=$(
+			DB_PATH="$db_path" SID="$session_id" ELAPSED="$elapsed_seconds" python3 - <<'PY'
+import os, sqlite3
+conn = sqlite3.connect(os.environ["DB_PATH"])
+conn.execute("PRAGMA busy_timeout=5000")
+cur = conn.cursor()
+cur.execute(
+    "SELECT COUNT(*) FROM message m"
+    " WHERE m.session_id = ?"
+    " AND (CASE WHEN m.time_created > 20000000000 THEN m.time_created / 1000 ELSE m.time_created END)"
+    " > strftime('%s', 'now') - ?",
+    (os.environ["SID"], int(os.environ["ELAPSED"])),
+)
+print(cur.fetchone()[0] or 0)
+PY
+		) 2>/dev/null || messages=0
+	fi
+
+	echo "available|${messages}"
+	return 0
+}
+
+#######################################
+# Determine the struggle flag from ratio/commit/elapsed metrics (GH#17078)
+# Arguments:
+#   $1 - ratio (messages / max(1, commits))
+#   $2 - commits count
+#   $3 - elapsed seconds
+#   $4 - min elapsed seconds threshold
+#   $5 - ratio threshold for "struggling"
+# Returns: flag string ("", "struggling", or "thrashing") via stdout
+#######################################
+_determine_struggle_flag() {
+	local ratio="$1"
+	local commits="$2"
+	local elapsed_seconds="$3"
+	local min_elapsed_seconds="$4"
+	local threshold="$5"
+	local flag=""
+
+	if [[ "$elapsed_seconds" -ge "$min_elapsed_seconds" ]]; then
+		if [[ "$ratio" -gt 50 && "$elapsed_seconds" -ge 3600 ]]; then
+			flag="thrashing"
+		elif [[ "$ratio" -gt "$threshold" && "$commits" -eq 0 ]]; then
+			flag="struggling"
+		fi
+	fi
+
+	echo "$flag"
+	return 0
+}
+
+#######################################
 # Compute struggle ratio for a single worker (t1367)
 #
 # struggle_ratio = messages / max(1, commits)
@@ -695,63 +743,29 @@ _compute_struggle_ratio() {
 		return 0
 	fi
 
-	# Count commits since worker start
-	local commits=0
-	if [[ -d "${worktree_dir}/.git" || -f "${worktree_dir}/.git" ]]; then
-		local since_seconds_ago="${elapsed_seconds}"
-		# Use (cmd || true) pattern for set -e safety — ensures the pipeline
-		# always succeeds and stderr remains visible for debugging (GH#4010)
-		commits=$( (git -C "$worktree_dir" log --oneline --since="${since_seconds_ago} seconds ago" || true) | wc -l | tr -d ' ')
+	# Count commits since worker start (elapsed_seconds is the time window).
+	local commits
+	commits=$(_count_worker_commits "$worktree_dir" "$elapsed_seconds")
+
+	# Count messages from the session DB (runtime-aware).
+	# Supports OpenCode (opencode.db). Returns "unavailable|0" when no DB found.
+	local msg_result db_status messages
+	msg_result=$(_count_worker_messages "$cmd" "$elapsed_seconds")
+	db_status="${msg_result%%|*}"
+	messages="${msg_result#*|}"
+
+	# If no session DB is available (e.g., Claude Code runtime without
+	# OpenCode DB), return n/a — do NOT fabricate counts (GH#11278).
+	if [[ "$db_status" == "unavailable" ]]; then
+		echo "n/a|${commits}|0|"
+		return 0
 	fi
 
-	# Estimate message count from OpenCode session DB
-	local messages=0
-	local db_path="${HOME}/.local/share/opencode/opencode.db"
-
-	if [[ -f "$db_path" ]]; then
-		local session_id
-		session_id=$(_resolve_session_id_from_cmd "$cmd")
-
-		if [[ -n "$session_id" ]]; then
-			messages=$(
-				DB_PATH="$db_path" SID="$session_id" ELAPSED="$elapsed_seconds" python3 - <<'PY'
-import os, sqlite3
-conn = sqlite3.connect(os.environ["DB_PATH"])
-conn.execute("PRAGMA busy_timeout=5000")
-cur = conn.cursor()
-cur.execute(
-    "SELECT COUNT(*) FROM message m"
-    " WHERE m.session_id = ?"
-    " AND (CASE WHEN m.time_created > 20000000000 THEN m.time_created / 1000 ELSE m.time_created END)"
-    " > strftime('%s', 'now') - ?",
-    (os.environ["SID"], int(os.environ["ELAPSED"])),
-)
-print(cur.fetchone()[0] or 0)
-PY
-			) 2>/dev/null || messages=0
-		fi
-	fi
-
-	# Fallback: estimate from elapsed time if DB query failed
-	# Conservative heuristic: ~2 messages per minute for an active worker
-	if [[ "$messages" -eq 0 && "$elapsed_seconds" -gt 300 ]]; then
-		local elapsed_minutes=$((elapsed_seconds / 60))
-		messages=$((elapsed_minutes * 2))
-	fi
-
-	# Compute ratio
+	# Compute ratio and flag
 	local denominator=$((commits > 0 ? commits : 1))
 	local ratio=$((messages / denominator))
-
-	# Determine flag
-	local flag=""
-	if [[ "$elapsed_seconds" -ge "$min_elapsed_seconds" ]]; then
-		if [[ "$ratio" -gt 50 && "$elapsed_seconds" -ge 3600 ]]; then
-			flag="thrashing"
-		elif [[ "$ratio" -gt "$threshold" && "$commits" -eq 0 ]]; then
-			flag="struggling"
-		fi
-	fi
+	local flag
+	flag=$(_determine_struggle_flag "$ratio" "$commits" "$elapsed_seconds" "$min_elapsed_seconds" "$threshold")
 
 	echo "${ratio}|${commits}|${messages}|${flag}"
 	return 0
@@ -778,5 +792,226 @@ _format_duration() {
 	else
 		echo "${seconds}s"
 	fi
+	return 0
+}
+
+#######################################
+# List active worker processes (logical, deduplicated).
+#
+# Moved here from pulse-wrapper.sh so that both pulse-wrapper.sh and
+# stats-functions.sh (via stats-wrapper.sh) use the same counting logic.
+# Previously, stats-functions.sh had a simpler _scan_active_workers that
+# missed headless-runtime-helper workers, didn't deduplicate process chains,
+# and didn't filter zombie/stopped processes — producing wrong worker counts
+# on the pinned health issue dashboards.
+#
+# t5072: Count logical workers (one per session/issue), not OS process tree nodes.
+# A single opencode worker spawns a 3-process chain:
+#   bash sandbox-exec-helper.sh run ... -- opencode run ...  (top-level launcher)
+#   node /opt/homebrew/bin/opencode run ...                  (node child)
+#   /path/to/.opencode run ...                               (binary grandchild)
+# All three contain /full-loop (or /review-issue-pr) and opencode in their command line.
+#
+# GH#12361 / GH#14944: Workers may appear either as direct opencode
+# processes or as headless-runtime-helper.sh wrappers around sandbox +
+# opencode children. Counting must treat the whole wrapper/process tree as
+# one logical worker.
+#
+# GH#6413: Process state filtering — exclude zombie (Z) and stopped (T)
+# processes.
+#
+# Output: one line per logical worker: "pid etime command..."
+#######################################
+list_active_worker_processes() {
+	ps axo pid,stat,etime,command | awk '
+		{
+			is_headless_wrapper = ($0 ~ /(^|[[:space:]\/])headless-runtime-helper\.sh([[:space:]]|$)/ && $0 ~ /(^|[[:space:]])run([[:space:]]|$)/ && $0 ~ /--role[[:space:]]+worker/)
+			has_worker_prompt = ($0 ~ /\/full-loop/ || $0 ~ /\/review-issue-pr/)
+			has_worker_binary = ($0 ~ /(^|[[:space:]\/])\.?opencode([[:space:]]|$)/ || $0 ~ /(^|[[:space:]\/])headless-runtime-helper\.sh([[:space:]]|$)/)
+
+			if (!(has_worker_prompt || is_headless_wrapper)) next
+			if ($0 ~ /(^|[[:space:]])\/pulse([[:space:]]|$)/) next
+			if ($0 ~ /Supervisor Pulse/) next
+			if (!has_worker_binary) next
+
+			# $2 is the stat column (e.g., S, SN, Ss, Z, Zs, T, TN)
+			stat = $2
+			# Exclude zombies (Z*) and stopped processes (T*)
+			if (stat ~ /^[ZT]/) next
+			# Build output line: pid, etime, command (skip stat)
+			line = $1 " " $3
+			for (i = 4; i <= NF; i++) line = line " " $i
+			# Extract issue number for dedup (matches "Issue #NNN" or "issue-NNN")
+			issue = ""
+			if (match($0, /[Ii]ssue[[:space:]]*#([0-9]+)/) || match($0, /issue-([0-9]+)/)) {
+				rest = substr($0, RSTART, RLENGTH)
+				gsub(/[^0-9]/, "", rest)
+				issue = rest
+			}
+			# Fallback: extract from --session-key issue-NNN when no Issue #/issue- marker
+			if (issue == "" && match($0, /--session-key[[:space:]]+issue-([0-9]+)/)) {
+				rest = substr($0, RSTART, RLENGTH)
+				gsub(/[^0-9]/, "", rest)
+				issue = rest
+			}
+			# Extract --dir path for dedup key (same issue in different repos
+			# = different logical workers)
+			dir = ""
+			if (match($0, /--dir[[:space:]]+[^[:space:]]+/)) {
+				dir = substr($0, RSTART, RLENGTH)
+				sub(/--dir[[:space:]]+/, "", dir)
+			}
+			dedup_key = issue "|" dir
+			# Prefer outer launchers over child processes for same issue+dir.
+			launcher_rank = 0
+			if ($0 ~ /(^|[[:space:]\/])headless-runtime-helper\.sh([[:space:]]|$)/ && $0 ~ /--role[[:space:]]+worker/) {
+				launcher_rank = 2
+			} else if ($0 ~ /sandbox-exec-helper\.sh/) {
+				launcher_rank = 1
+			}
+			if (issue != "" && dedup_key in seen) {
+				# Already have a line for this issue+dir
+				if (launcher_rank > seen_launcher_rank[dedup_key]) {
+					# Replace inner child with outer launcher
+					seen_lines[dedup_key] = line
+					seen_launcher_rank[dedup_key] = launcher_rank
+				}
+				# Otherwise skip (lower-rank child of existing launcher, or duplicate)
+			} else if (issue != "") {
+				seen[dedup_key] = 1
+				seen_lines[dedup_key] = line
+				seen_launcher_rank[dedup_key] = launcher_rank
+				key_order[++key_count] = dedup_key
+			} else {
+				# No issue number found — print directly (edge case)
+				no_issue_lines[++no_issue_count] = line
+			}
+		}
+		END {
+			for (i = 1; i <= key_count; i++) {
+				print seen_lines[key_order[i]]
+			}
+			for (i = 1; i <= no_issue_count; i++) {
+				print no_issue_lines[i]
+			}
+		}
+	'
+	return 0
+}
+
+#######################################
+# Escalate issue model tier after repeated worker failures.
+#
+# After ESCALATION_FAILURE_THRESHOLD (default 2) failures at the current
+# tier, adds tier:thinking label to route the next dispatch to opus.
+# If already at tier:thinking, no further escalation — the issue stays
+# for the fast-fail skip/needs-human path.
+#
+# Arguments:
+#   $1 - issue number
+#   $2 - repo slug (owner/repo)
+#   $3 - failure count (current fast-fail count AFTER increment)
+#   $4 - kill/failure reason (for the comment)
+# Returns: 0 always (best-effort, never fatal)
+#######################################
+ESCALATION_FAILURE_THRESHOLD="${ESCALATION_FAILURE_THRESHOLD:-2}"
+
+escalate_issue_tier() {
+	local issue_number="$1"
+	local repo_slug="$2"
+	local failure_count="$3"
+	local reason="${4:-repeated_failure}"
+
+	[[ "$issue_number" =~ ^[0-9]+$ ]] || return 0
+	[[ -n "$repo_slug" ]] || return 0
+
+	# Validate failure_count is numeric (CodeRabbit review)
+	[[ "$failure_count" =~ ^[0-9]+$ ]] || return 0
+
+	# Validate threshold
+	local threshold="$ESCALATION_FAILURE_THRESHOLD"
+	[[ "$threshold" =~ ^[0-9]+$ ]] || threshold=2
+	[[ "$threshold" -ge 1 ]] || threshold=2
+
+	# Only escalate at the threshold boundary (not on every subsequent failure)
+	if [[ "$failure_count" -ne "$threshold" ]]; then
+		return 0
+	fi
+
+	# Check current labels — skip if already at tier:thinking
+	local current_labels
+	current_labels=$(gh issue view "$issue_number" --repo "$repo_slug" \
+		--json labels --jq '[.labels[].name] | join(",")' 2>/dev/null) || current_labels=""
+
+	case ",$current_labels," in
+	*,tier:thinking,*)
+		# Already at highest auto-escalation tier
+		return 0
+		;;
+	esac
+
+	# Add tier:thinking label (creates label if needed)
+	gh label create "tier:thinking" \
+		--repo "$repo_slug" \
+		--description "Route to opus-tier model for dispatch" \
+		--color "7057FF" \
+		--force 2>/dev/null || true
+
+	gh issue edit "$issue_number" --repo "$repo_slug" \
+		--add-label "tier:thinking" \
+		--remove-label "tier:simple" 2>/dev/null || {
+		return 0
+	}
+
+	# Post escalation comment (sanitize reason to prevent markdown injection)
+	local safe_reason
+	safe_reason=$(_sanitize_markdown "$reason")
+	local comment_body="## Model Tier Escalation
+
+**Trigger:** ${failure_count} consecutive worker failures (threshold: ${threshold})
+**Action:** Added \`tier:thinking\` label — next dispatch will use opus-tier model.
+**Reason:** ${safe_reason}
+
+Previous attempts at the default model tier failed to produce a PR. Escalating to a more capable model.
+
+_Automated by \`escalate_issue_tier()\` in worker-lifecycle-common.sh_"
+
+	gh issue comment "$issue_number" --repo "$repo_slug" \
+		--body "$comment_body" 2>/dev/null || true
+
+	return 0
+}
+
+#######################################
+# Count active worker processes
+# Returns: count via stdout
+#######################################
+count_active_workers() {
+	local count
+	count=$(list_active_worker_processes | wc -l | tr -d ' ') || count=0
+	echo "$count"
+	return 0
+}
+
+#######################################
+# Count interactive AI sessions (t1398)
+#
+# Counts opencode/claude processes with a real TTY (interactive sessions).
+# Shared between pulse-wrapper.sh and stats-functions.sh.
+#
+# Arguments: none
+# Returns: session count via stdout
+#######################################
+check_session_count() {
+	local interactive_count=0
+
+	# Count opencode processes with a real TTY (interactive sessions).
+	# Filter both '?' (Linux) and '??' (macOS) headless TTY entries.
+	interactive_count=$(ps axo tty,command | awk '
+		/(\.(opencode|claude)|opencode-ai|claude-ai)/ && !/awk/ && $1 != "?" && $1 != "??" { count++ }
+		END { print count + 0 }
+	') || interactive_count=0
+
+	echo "$interactive_count"
 	return 0
 }

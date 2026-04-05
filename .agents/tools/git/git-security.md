@@ -3,14 +3,13 @@ description: Git security practices and secret scanning
 mode: subagent
 tools:
   read: true
-  write: false
-  edit: false
   bash: true
-  glob: true
   grep: true
-  webfetch: false
   task: true
 ---
+
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
 
 # Git Security Practices
 
@@ -18,168 +17,83 @@ tools:
 
 ## Quick Reference
 
-- **Token storage**: `~/.config/aidevops/` (600 permissions)
-- **Never commit**: API keys, tokens, passwords, secrets
-- **Branch protection**: Enable for `main` branch
-- **Signed commits**: Use GPG signing for verification
-- **2FA**: Enable on all Git platforms
-
-**Pre-commit check**:
-
-```bash
-git diff --cached | grep -iE "(api_key|token|password|secret)" && echo "WARNING: Possible secret!"
-```
+- **Store secrets**: `~/.config/aidevops/credentials.sh` (600 perms) or gopass
+- **Never commit**: API keys, tokens, passwords, private keys, other secrets
+- **Protect `main`**: PRs, required status checks, stale-review dismissal, admin enforcement
+- **Scan before push**: `secretlint-helper.sh scan`; use `trufflehog` for history
+- **Incident order**: rotate first, remove from history second
 
 <!-- AI-CONTEXT-END -->
 
-## Authentication Security
+## Preventive Controls
 
-### Use CLI Authentication
-
-```bash
-# Stores tokens in system keyring (secure)
-# Include -s workflow for CI workflow PR support
-gh auth login -s workflow
-glab auth login
-tea login add
-```
-
-Avoid environment variables when possible - CLI auth is more secure.
-
-### Token Management
+**Auth:** CLI auth (tokens in system keyring, not repo files). Fallback: `~/.config/aidevops/credentials.sh` (600 perms). Rotate every 6-12 months or on exposure. Prefer short-lived CI/CD credentials. See `git/authentication.md`.
 
 ```bash
-# Store tokens securely
-mkdir -p ~/.config/aidevops
-chmod 700 ~/.config/aidevops
-echo "GITHUB_TOKEN=xxx" >> ~/.config/aidevops/credentials.sh
-chmod 600 ~/.config/aidevops/credentials.sh
+gh auth login -s workflow   # -s workflow for CI PR support
 ```
-
-### Token Rotation
-
-- Rotate tokens every 6-12 months
-- Immediately rotate if exposed
-- Use short-lived tokens for CI/CD
-
-## Repository Security
 
 ### Branch Protection
 
-Enable for `main` branch:
+Require PR reviews, dismiss stale approvals, enforce admins, require CI checks, CODEOWNERS where available. Signed commits recommended.
 
 ```bash
-# Via GitHub CLI
 gh api repos/{owner}/{repo}/branches/main/protection -X PUT \
   -f required_status_checks='{"strict":true,"contexts":[]}' \
   -f enforce_admins=true \
   -f required_pull_request_reviews='{"required_approving_review_count":1}'
 ```
 
-Or via web UI:
-1. Settings → Branches → Add rule
-2. Branch name pattern: `main`
-3. Enable:
-   - Require pull request reviews
-   - Require status checks
-   - Require signed commits (optional)
-
-### Required Reviews
-
-- Require at least 1 approval before merge
-- Dismiss stale reviews on new commits
-- Require review from code owners
-
-### Status Checks
-
-- Require CI to pass before merge
-- Include security scanning
-- Include linting/tests
-
-## Commit Security
-
-### Signed Commits
+### Commit Signing
 
 ```bash
-# Generate GPG key
 gpg --full-generate-key
-
-# Get key ID
-gpg --list-secret-keys --keyid-format=long
-
-# Configure git
-git config --global user.signingkey YOUR_KEY_ID
+gpg --list-secret-keys --keyid-format=long   # get KEY_ID
+git config --global user.signingkey KEY_ID
 git config --global commit.gpgsign true
-
-# Sign commits
-git commit -S -m "Signed commit"
 ```
 
-### Pre-commit Hooks
+### Secret Detection
 
-Prevent accidental secret commits:
+Primary: `secretlint-helper.sh scan`. History: `trufflehog git file://. --only-verified`.
+
+Pre-commit hook (pattern-based, supplementary to secretlint):
 
 ```bash
 # .git/hooks/pre-commit
 #!/bin/bash
 if git diff --cached | grep -iE "(api_key|token|password|secret|private_key)" > /dev/null; then
-    echo "ERROR: Possible secret detected in commit!"
-    echo "Review your changes before committing."
-    exit 1
+    echo "ERROR: Possible secret detected — review before committing."; exit 1
 fi
-```
-
-## Secret Detection
-
-### Tools
-
-- **secretlint**: `.agents/scripts/secretlint-helper.sh`
-- **git-secrets**: AWS secret detection
-- **trufflehog**: Historical secret scanning
-
-### Scanning
-
-```bash
-# Scan for secrets
-./.agents/scripts/secretlint-helper.sh scan
-
-# Scan git history
-trufflehog git file://. --only-verified
 ```
 
 ## Access Control
 
-### Team Permissions
+Least privilege. Quarterly review. Remove inactive collaborators. Prefer teams over direct grants.
 
 | Role | Permissions |
 |------|-------------|
-| Read | View code, issues |
-| Triage | Manage issues, no code push |
+| Read | View code/issues |
+| Triage | Manage issues, no push |
 | Write | Push to non-protected branches |
-| Maintain | Push to protected, manage settings |
+| Maintain | Settings + protected-branch workflows |
 | Admin | Full access |
-
-### Principle of Least Privilege
-
-- Grant minimum necessary permissions
-- Review access quarterly
-- Remove inactive collaborators
-- Use teams for group permissions
 
 ## Incident Response
 
-### If Token Exposed
+**Token exposed:** revoke → replace → update consumers → audit for unauthorized use.
 
-1. **Immediately revoke** the token
-2. Generate new token
-3. Update all systems using it
-4. Audit for unauthorized access
-5. Review how exposure happened
+**Secret committed:**
 
-### If Secrets Committed
+1. **Rotate first** — assume compromise.
+2. Remove from history (`git-filter-repo` preferred):
 
-1. **Rotate the secret immediately**
-2. Remove from git history:
+   ```bash
+   git filter-repo --invert-paths --path path/to/secret
+   git push origin --force --all
+   ```
+
+   Fallback (`git filter-branch`, legacy):
 
    ```bash
    git filter-branch --force --index-filter \
@@ -188,10 +102,10 @@ trufflehog git file://. --only-verified
    git push origin --force --all
    ```
 
-3. Force-push to all remotes
-4. Notify affected parties
+3. Notify affected parties.
 
 ## Related
 
 - **Token setup**: `git/authentication.md`
 - **CLI tools**: `tools/git.md`
+- **Secret storage**: `tools/credentials/gopass.md`

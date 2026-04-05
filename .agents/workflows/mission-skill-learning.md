@@ -13,6 +13,9 @@ tools:
   task: false
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Mission Skill Learning
 
 <!-- AI-CONTEXT-START -->
@@ -24,189 +27,78 @@ tools:
 - **Called by**: Mission orchestrator (Phase 5), pulse supervisor (mission completion), manual invocation
 - **Stores to**: `memory.db` (mission_learnings table + memory entries via memory-helper.sh)
 
-**Key commands**:
-
 ```bash
 mission-skill-learner.sh scan <mission-dir>          # Scan a completed mission
-mission-skill-learner.sh scan-all [--repo <path>]    # Scan all missions
-mission-skill-learner.sh promote <path> [draft|custom]  # Promote artifact
-mission-skill-learner.sh patterns [--mission <id>]   # Show recurring patterns
-mission-skill-learner.sh suggest <mission-dir>       # Suggest promotions
-mission-skill-learner.sh stats                       # Show statistics
+mission-skill-learner.sh scan-all [--repo <path>]    # Scan all missions; paths: {repo}/todo/missions/*/mission.md + ~/.aidevops/missions/*/mission.md
+mission-skill-learner.sh promote <path> [draft|custom]  # Copy artifact to target tier and record promotion
+mission-skill-learner.sh patterns [--mission <id>]   # Identify artifacts recurring across missions
+mission-skill-learner.sh suggest <mission-dir>       # Re-scan with detailed promotion suggestions
+mission-skill-learner.sh stats                       # Artifact totals, promotion counts, missions scanned, memory pattern counts
 ```
-
-**Promotion tiers**: mission-only -> `draft/` (score >= 40) -> `custom/` (score >= 70) -> `shared/` (score >= 85, PR required)
 
 **Related**:
 
 | File | Purpose |
 |------|---------|
 | `workflows/mission-orchestrator.md` | Orchestrator that invokes skill learning at completion |
-| `memory/README.md` | Cross-session memory system |
+| `reference/memory.md` | Cross-session memory system |
 | `tools/build-agent/build-agent.md` | Agent lifecycle tiers (draft/custom/shared) |
 | `templates/mission-template.md` | Mission state file with "Mission Agents" table |
 
 <!-- AI-CONTEXT-END -->
 
-## When to Capture
+## When It Runs
 
-The skill learning system captures at two points in the mission lifecycle:
+| Stage | Action |
+|-------|--------|
+| During execution | Orchestrator records raw observations in the mission decision log; no scoring yet |
+| Mission completion | `scan <mission-dir>` after `status: completed` — inspects `agents/` and `scripts/`, extracts decisions/lessons, scores artifacts (0-100), stores to `memory.db`, suggests promotions |
+| Pulse follow-up | Detect completed-but-unscanned missions, run scan, report promotion candidates |
 
-### During Execution (Lightweight)
+## Artifact Scoring
 
-The orchestrator notes observations in the mission's decision log as they occur. No interruption to the mission flow. Examples:
-
-- "Created a mission agent for X because workers kept failing without it"
-- "Wrote a custom validation script that could be generalised"
-- "Discovered that approach Y works well for this class of problem"
-
-These are raw observations — not yet scored or promoted.
-
-### At Completion (Full Scan)
-
-When a mission reaches `status: completed`, the orchestrator runs the full skill learning scan:
-
-```bash
-mission-skill-learner.sh scan <mission-dir>
-```
-
-This:
-
-1. Scans `{mission-dir}/agents/` for mission-specific agents
-2. Scans `{mission-dir}/scripts/` for mission-specific scripts
-3. Extracts decisions from the decision log
-4. Extracts lessons learned from the retrospective
-5. Scores each artifact for reusability (0-100)
-6. Stores everything in `memory.db` (mission_learnings table)
-7. Stores patterns in cross-session memory via `memory-helper.sh`
-8. Suggests promotions for high-scoring artifacts
-
-## What to Capture
-
-### Artifacts (Agents and Scripts)
-
-Mission agents and scripts are scored on 5 dimensions:
-
-| Factor | Weight | What it measures |
-|--------|--------|-----------------|
+| Factor | Weight | Measures |
+|--------|--------|----------|
 | Generality | +30 | Not project-specific (no hardcoded paths, URLs, repo names) |
 | Documentation | +20 | Has description, usage comments, structured sections |
 | Size | +15 | Appropriate length (not trivial, not bloated) |
 | Standard format | +15 | Follows aidevops conventions (frontmatter, set -euo, local vars) |
 | Multi-feature usage | +20 | Referenced by multiple features within the mission |
 
-### Patterns (Decisions and Lessons)
-
-Decisions and lessons from the mission state file are stored as memory entries with type `MISSION_PATTERN`. These accumulate across missions and surface via `/recall` when planning future missions.
-
-Pattern types:
-
-- **Decisions**: Technology choices, architecture decisions, trade-offs made
-- **Lessons**: What worked, what didn't, what to do differently
-- **Failure modes**: Approaches that failed and why (prevents repeating mistakes)
-
 ## Promotion Lifecycle
 
-```text
-mission-only -> draft/ -> custom/ -> shared/
-   (score < 40)  (>= 40)   (>= 70)   (>= 85)
-```
+| Tier | Score | Location | Notes |
+|------|-------|----------|-------|
+| Mission-only | < 40 | Mission directory | Too specific/trivial; learning still captured in memory |
+| Draft | >= 40 | `~/.aidevops/agents/draft/` | Experimental, survives updates. `promote <path> draft` |
+| Custom | >= 70 | `~/.aidevops/agents/custom/` | Proven useful across missions. `promote <path> custom` |
+| Shared | >= 85 | Requires PR to aidevops repo | Flagged as candidate; user/supervisor creates PR |
 
-### Mission-Only (Score < 40)
+`patterns` highlights artifacts recurring across missions; treat them as strong promotion candidates.
 
-The artifact stays in the mission directory. It's too project-specific or too trivial to promote. The learning is still captured in memory for pattern tracking.
+## Integration Points
 
-### Draft Tier (Score >= 40)
+### Cross-Session Memory
 
-```bash
-mission-skill-learner.sh promote <path> draft
-```
+Store mission decisions, lessons, and failure modes as `MISSION_PATTERN` entries — surfaces via `/recall` during future mission planning, worker recovery, and pulse runs.
 
-Copies to `~/.aidevops/agents/draft/`. Draft agents survive framework updates but are experimental. Good for artifacts that solve a general problem but need refinement.
+| Entry type | Memory type | Tags |
+|------------|-------------|------|
+| Decisions | `MISSION_PATTERN` | `mission,decision,{mission_id}` |
+| Lessons | `MISSION_PATTERN` | `mission,lesson,{mission_id}` |
+| Promotions | `MISSION_AGENT` | `mission,promotion,{tier},{name}` |
 
-### Custom Tier (Score >= 70)
+### Mission Orchestrator (Phase 5)
 
-```bash
-mission-skill-learner.sh promote <path> custom
-```
+1. Run `mission-skill-learner.sh scan <mission-dir>`
+2. For each suggestion with score >= 40, promote based on tier:
+   - **Score 40-69**: `mission-skill-learner.sh promote <path> draft`
+   - **Score 70-84**: `mission-skill-learner.sh promote <path> custom`
+   - **Score >= 85**: do not use CLI promote; create an aidevops PR and follow shared-tier review
+   - Leave project-specific artifacts in place even if their score qualifies for promotion
+3. Record decisions in the mission's "Mission Agents" table
+4. File GitHub issues for framework improvements; record in "Framework Improvements" section
 
-Copies to `~/.aidevops/agents/custom/`. Custom agents are the user's permanent private agents. Good for artifacts that are proven useful across multiple missions.
+### Pulse Supervisor
 
-### Shared Tier (Score >= 85)
-
-Cannot be promoted directly — requires a PR to the aidevops repo. The skill learner flags these as candidates and the user (or supervisor) creates a PR.
-
-## Recurring Pattern Detection
-
-The `patterns` command identifies artifacts that appear across multiple missions:
-
-```bash
-mission-skill-learner.sh patterns
-```
-
-This queries the `mission_learnings` table for artifacts with the same name/type seen in different missions. Recurring patterns are strong candidates for promotion — if the same agent or script keeps being created, it should be part of the framework.
-
-## Integration with Cross-Session Memory
-
-All mission learnings feed into the existing memory system:
-
-- **Decisions** are stored as `MISSION_PATTERN` type memories with tags `mission,decision,{mission_id}`
-- **Lessons** are stored as `MISSION_PATTERN` type memories with tags `mission,lesson,{mission_id}`
-- **Promotions** are stored as `MISSION_AGENT` type memories with tags `mission,promotion,{tier},{name}`
-
-These memories surface automatically when:
-
-- Planning a new mission (`/mission`) — `/recall "mission patterns"` shows what worked before
-- A worker encounters a problem — `/recall "mission lesson {domain}"` shows past lessons
-- The supervisor runs a pulse — pattern data informs dispatch decisions
-
-## Integration with Mission Orchestrator
-
-The mission orchestrator (`workflows/mission-orchestrator.md`) invokes skill learning at Phase 5 (completion):
-
-1. Run `mission-skill-learner.sh scan <mission-dir>` to capture all artifacts
-2. Review the promotion suggestions in the scan output
-3. For each suggestion with score >= 40:
-   - If the artifact is generally useful: run `mission-skill-learner.sh promote <path> draft`
-   - If the artifact is project-specific: leave in mission directory
-   - Record the decision in the mission's "Mission Agents" table
-4. For framework improvements identified during the mission:
-   - File a GitHub issue on the aidevops repo
-   - Record the issue number in the mission's "Framework Improvements" section
-
-## Integration with Pulse Supervisor
-
-The pulse supervisor checks for completed missions and triggers skill learning:
-
-1. Detect missions with `status: completed` that haven't been scanned (no entries in `mission_learnings` for that mission_id)
-2. Run `mission-skill-learner.sh scan <mission-dir>`
-3. Log promotion candidates in the pulse report
-
-## CLI Reference
-
-### `scan <mission-dir>`
-
-Scan a single mission directory for reusable artifacts. Outputs scored artifacts, decision patterns, lessons learned, and promotion suggestions.
-
-### `scan-all [--repo <path>]`
-
-Scan all mission directories. Checks:
-
-- `{repo}/todo/missions/*/mission.md` (repo-attached)
-- `~/.aidevops/missions/*/mission.md` (homeless)
-
-### `promote <path> [draft|custom]`
-
-Copy an artifact from a mission directory to the specified agent tier. Updates the learning record and stores a promotion event in memory.
-
-### `patterns [--mission <id>]`
-
-Show recurring patterns across missions. Identifies artifacts seen in multiple missions and top promotion candidates.
-
-### `suggest <mission-dir>`
-
-Run a fresh scan and display detailed promotion suggestions with recommended actions and commands.
-
-### `stats`
-
-Show overall learning statistics: total artifacts tracked, by type, promotion counts, missions scanned, and memory pattern counts.
+Detects missions with `status: completed` and no `mission_learnings` entries for that mission ID, runs the scan, and logs promotion candidates in the pulse report.

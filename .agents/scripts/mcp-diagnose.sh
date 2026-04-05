@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # MCP Connection Failure Diagnostics
 # Usage: mcp-diagnose.sh <mcp-name>
+#        mcp-diagnose.sh check-all
 #
 # Diagnoses common MCP connection issues:
 # - Command availability
 # - Version mismatches
 # - Configuration errors
 # - Known breaking changes
+#
+# check-all: scans all enabled MCP servers and reports which are unavailable,
+# helping identify dead tool schemas that waste context tokens (t1682).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit
 source "${SCRIPT_DIR}/shared-constants.sh"
@@ -17,14 +23,362 @@ MCP_NAME="${1:-}"
 
 if [[ -z "$MCP_NAME" ]]; then
 	echo "Usage: mcp-diagnose.sh <mcp-name>"
+	echo "       mcp-diagnose.sh check-all"
 	echo ""
 	echo "Examples:"
 	echo "  mcp-diagnose.sh augment-context-engine"
+	echo "  mcp-diagnose.sh check-all"
 	exit 1
+fi
+
+# =============================================================================
+# check-all: scan all enabled MCP servers for connection errors (t1682)
+# Identifies servers whose tool schemas are in context but can't execute.
+#
+# Decomposed into helpers (GH#8516):
+#   _resolve_mcp_config   — find the MCP config file
+#   _extract_server_list  — parse config into tab-separated server list
+#   _print_remediation    — display fix instructions for errored servers
+#   _check_all_mcps       — orchestrator
+# =============================================================================
+
+# Resolve the MCP config file path.
+# Tries the runtime registry first (for all detected runtimes), then falls back
+# to platform-aware candidate paths in priority order:
+#   1. Claude Code CLI:     ~/.config/Claude/Claude.json
+#   2. Claude Desktop macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+#   3. OpenCode:            ~/.config/opencode/opencode.json
+# Echoes the resolved path on stdout.
+# Returns: 0 if a valid config file was found, 1 otherwise.
+_resolve_mcp_config() {
+	local config_file=""
+
+	# Try runtime registry for all detected runtimes (preferred — registry-driven)
+	if type rt_detect_configured &>/dev/null; then
+		local _rt_id
+		while IFS= read -r _rt_id; do
+			local _cfg
+			_cfg=$(rt_config_path "$_rt_id" 2>/dev/null) || continue
+			if [[ -n "$_cfg" && -f "$_cfg" ]]; then
+				config_file="$_cfg"
+				break
+			fi
+		done < <(rt_detect_configured 2>/dev/null)
+	fi
+
+	# Fallback: platform-aware candidate paths in priority order
+	if [[ -z "$config_file" || ! -f "$config_file" ]]; then
+		local _candidates=(
+			"$HOME/.claude.json"
+			"$HOME/.config/Claude/Claude.json"
+			"$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+			"$HOME/.config/opencode/opencode.json"
+		)
+		local _c
+		for _c in "${_candidates[@]}"; do
+			if [[ -f "$_c" ]]; then
+				config_file="$_c"
+				break
+			fi
+		done
+	fi
+
+	if [[ -z "$config_file" || ! -f "$config_file" ]]; then
+		echo -e "${RED}✗ No MCP config file found. Checked:${NC}" >&2
+		echo -e "${RED}  ~/.claude.json${NC}" >&2
+		echo -e "${RED}  ~/.config/Claude/Claude.json${NC}" >&2
+		echo -e "${RED}  ~/Library/Application Support/Claude/claude_desktop_config.json${NC}" >&2
+		echo -e "${RED}  ~/.config/opencode/opencode.json${NC}" >&2
+		return 1
+	fi
+
+	echo "$config_file"
+	return 0
+}
+
+# Extract enabled MCP server names and their commands from a config file.
+# Arguments:
+#   $1 - config file path (required)
+# Output: tab-separated lines: name\tserver_type\tcmd_path
+# Returns: 0 on success, 1 on parse failure.
+_extract_server_list() {
+	local config_file="$1"
+
+	python3 - "$config_file" <<'PYEOF'
+import json, sys
+
+config_file = sys.argv[1]
+with open(config_file) as f:
+    cfg = json.load(f)
+
+# Support both 'mcp' (opencode) and 'mcpServers' (Claude Code / other runtimes)
+mcp_section = cfg.get('mcp', cfg.get('mcpServers', {}))
+
+for name, server in mcp_section.items():
+    enabled = server.get('enabled', True)
+    if not enabled:
+        continue
+    server_type = server.get('type', 'stdio')
+    # 'remote' and 'sse' are network-based MCPs — skip connectivity check
+    if server_type in ('remote', 'sse'):
+        print(f"{name}\tremote\t")
+        continue
+    cmd = server.get('command', [])
+    if isinstance(cmd, list) and len(cmd) > 0:
+        print(f"{name}\tlocal\t{cmd[0]}")
+    elif isinstance(cmd, str):
+        print(f"{name}\tlocal\t{cmd}")
+    else:
+        print(f"{name}\tlocal\t")
+PYEOF
+	return $?
+}
+
+# Print remediation advice for errored MCP servers.
+# Arguments:
+#   $1 - config file path
+#   $2..N - errored server names
+# Returns: 0 always.
+_print_remediation() {
+	local config_file="$1"
+	shift
+	# Remaining args are errored server names
+
+	echo ""
+	echo -e "${YELLOW}=== Errored Servers — Dead Tool Schemas in Context ===${NC}"
+	echo ""
+	echo "These servers have tool schemas registered but cannot execute."
+	echo "Each errored server wastes context tokens on unusable tools."
+	echo ""
+	echo "Remediation options:"
+	echo ""
+	echo "  Option A — Fix the connection (preferred):"
+	local name
+	for name in "$@"; do
+		echo "    mcp-diagnose.sh $name"
+	done
+	echo ""
+	echo "  Option B — Disable until fixed (removes schemas from context):"
+	echo "    Edit $config_file"
+	for name in "$@"; do
+		echo "    Set \"$name\": { ..., \"enabled\": false }"
+	done
+	echo ""
+	echo "  Option C — Remove registration entirely:"
+	for name in "$@"; do
+		echo "    Delete the \"$name\" entry from $config_file"
+	done
+	echo ""
+	echo -e "${BLUE}Tip:${NC} After fixing, restart your AI runtime to reload tool schemas."
+	return 0
+}
+
+# Collect all unique MCP config files across all detected runtimes.
+# Outputs one config file path per line (no duplicates).
+_collect_all_configs() {
+	local seen=()
+	local config_file=""
+
+	# Registry-driven: iterate all detected runtimes
+	if type rt_detect_configured &>/dev/null; then
+		local _rt_id
+		while IFS= read -r _rt_id; do
+			local _cfg
+			_cfg=$(rt_config_path "$_rt_id" 2>/dev/null) || continue
+			if [[ -n "$_cfg" && -f "$_cfg" ]]; then
+				# Deduplicate: check if already in seen array
+				local _dup=false
+				if [[ ${#seen[@]} -gt 0 ]]; then
+					local _s
+					for _s in "${seen[@]}"; do
+						[[ "$_s" == "$_cfg" ]] && _dup=true && break
+					done
+				fi
+				if [[ "$_dup" == "false" ]]; then
+					seen+=("$_cfg")
+					echo "$_cfg"
+				fi
+			fi
+		done < <(rt_detect_configured 2>/dev/null)
+	fi
+
+	# Fallback candidates not covered by registry
+	local _fallback_candidates=(
+		"$HOME/.claude.json"
+		"$HOME/.config/Claude/Claude.json"
+		"$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+		"$HOME/.config/opencode/opencode.json"
+	)
+	local _c
+	for _c in "${_fallback_candidates[@]}"; do
+		[[ -f "$_c" ]] || continue
+		local _dup=false
+		if [[ ${#seen[@]} -gt 0 ]]; then
+			local _s
+			for _s in "${seen[@]}"; do
+				[[ "$_s" == "$_c" ]] && _dup=true && break
+			done
+		fi
+		if [[ "$_dup" == "false" ]]; then
+			seen+=("$_c")
+			echo "$_c"
+		fi
+	done
+	return 0
+}
+
+# Scan a single config file and report MCP server health.
+# Arguments:
+#   $1 - config file path
+#   $2 - name of array variable to append errored server names to (passed by name)
+# Outputs results to stdout. Increments global ok_count/error_count/skip_count.
+# Parse failures are non-fatal: logs an error and returns 0 so the caller continues.
+_scan_config_file() {
+	local config_file="$1"
+	local errored_var="$2"
+
+	local server_list
+	if ! server_list=$(_extract_server_list "$config_file" 2>/dev/null); then
+		echo -e "  ${RED}✗ Failed to parse config file — skipping${NC}"
+		return 0
+	fi
+
+	if [[ -z "$server_list" ]]; then
+		echo -e "  ${YELLOW}(no enabled MCP servers)${NC}"
+		return 0
+	fi
+
+	while IFS=$'\t' read -r name server_type cmd_path; do
+		[[ -z "$name" ]] && continue
+
+		if [[ "$server_type" == "remote" ]]; then
+			echo -e "  ${CYAN}[remote]${NC} $name — skipping connectivity check (remote MCP)"
+			((++skip_count))
+			continue
+		fi
+
+		# For local MCPs: check if the command binary exists
+		# cmd_path may be a full path (e.g. /home/user/.nvm/.../npx) or a bare name
+		local cmd_ok=false
+		if [[ -n "$cmd_path" ]]; then
+			if [[ -x "$cmd_path" ]]; then
+				cmd_ok=true
+			elif command -v "$cmd_path" &>/dev/null; then
+				cmd_ok=true
+			fi
+		fi
+
+		if [[ "$cmd_ok" == "true" ]]; then
+			echo -e "  ${GREEN}[ok]${NC}     $name"
+			((++ok_count))
+		else
+			echo -e "  ${RED}[error]${NC}  $name — command not found: ${cmd_path:-<none>}"
+			# Append to the caller-provided array variable by name
+			eval "${errored_var}+=(\"$name\")"
+			((++error_count))
+		fi
+	done <<<"$server_list"
+	return 0
+}
+
+# Orchestrator: scan all enabled MCP servers across all runtime configs.
+_check_all_mcps() {
+	echo -e "${BLUE}=== MCP Server Health Check (t1682) ===${NC}"
+	echo ""
+	echo "Scanning all enabled MCP servers for connection errors..."
+	echo "Errored servers inject dead tool schemas into context, wasting tokens."
+	echo ""
+
+	local all_configs=()
+	while IFS= read -r _cfg; do
+		all_configs+=("$_cfg")
+	done < <(_collect_all_configs)
+
+	if [[ ${#all_configs[@]} -eq 0 ]]; then
+		echo -e "${RED}✗ No MCP config files found.${NC}"
+		echo "  Checked: ~/.claude.json, ~/.config/Claude/Claude.json,"
+		echo "           ~/Library/Application Support/Claude/claude_desktop_config.json,"
+		echo "           ~/.config/opencode/opencode.json"
+		return 1
+	fi
+
+	local ok_count=0
+	local error_count=0
+	local skip_count=0
+	local any_errors=false
+
+	local config_file
+	for config_file in "${all_configs[@]}"; do
+		echo "Config: $config_file"
+		# Per-config errored names array — remediation points to the correct config
+		local _cfg_errored=()
+		_scan_config_file "$config_file" "_cfg_errored"
+		echo ""
+		if [[ ${#_cfg_errored[@]} -gt 0 ]]; then
+			_print_remediation "$config_file" "${_cfg_errored[@]}"
+			any_errors=true
+		fi
+	done
+
+	echo "Summary: ${ok_count} ok, ${error_count} errored, ${skip_count} skipped (remote)"
+
+	if [[ "$any_errors" == "true" ]]; then
+		return 1
+	fi
+
+	echo ""
+	echo -e "${GREEN}All enabled local MCP servers have reachable commands.${NC}"
+	return 0
+}
+
+# =============================================================================
+# Single-server diagnosis (original behaviour)
+# =============================================================================
+if [[ "$MCP_NAME" == "check-all" ]]; then
+	_check_all_mcps
+	exit $?
 fi
 
 echo -e "${BLUE}=== MCP Diagnosis: $MCP_NAME ===${NC}"
 echo ""
+
+# 0. Detect if this is a remote/SSE MCP by reading its type from config files.
+# Config-driven: reads the 'type' field from the MCP entry rather than hardcoding names.
+MCP_IS_REMOTE=false
+MCP_CONFIGURED_TYPE=""
+_detect_mcp_type() {
+	local mcp_name="$1"
+	local config_file="$2"
+	python3 - "$config_file" "$mcp_name" <<'PYEOF'
+import json, sys
+config_file, mcp_name = sys.argv[1], sys.argv[2]
+try:
+    with open(config_file) as f:
+        cfg = json.load(f)
+    mcp_section = cfg.get('mcp', cfg.get('mcpServers', {}))
+    entry = mcp_section.get(mcp_name, {})
+    print(entry.get('type', ''))
+except Exception:
+    print('')
+PYEOF
+}
+
+# Check all config files for this MCP's type.
+# Prefer 'remote' or 'sse' if found in any config (an enabled remote entry
+# takes precedence over a disabled local entry in another config).
+while IFS= read -r _diag_cfg; do
+	_mcp_type=$(_detect_mcp_type "$MCP_NAME" "$_diag_cfg" 2>/dev/null)
+	if [[ "$_mcp_type" == "remote" || "$_mcp_type" == "sse" ]]; then
+		MCP_CONFIGURED_TYPE="$_mcp_type"
+		break
+	elif [[ -n "$_mcp_type" && -z "$MCP_CONFIGURED_TYPE" ]]; then
+		MCP_CONFIGURED_TYPE="$_mcp_type"
+	fi
+done < <(_collect_all_configs)
+
+if [[ "$MCP_CONFIGURED_TYPE" == "remote" || "$MCP_CONFIGURED_TYPE" == "sse" ]]; then
+	MCP_IS_REMOTE=true
+fi
 
 # 1. Check if command exists
 echo "1. Checking command availability..."
@@ -43,6 +397,36 @@ context7)
 	NPM_PKG="$MCP_NAME"
 	;;
 esac
+
+if [[ "$MCP_IS_REMOTE" == "true" ]]; then
+	echo -e "   ${CYAN}[remote]${NC} $MCP_NAME is a remote/SSE MCP (type: ${MCP_CONFIGURED_TYPE}) — no local command required."
+	echo "   Remote MCPs connect over the network and cannot be diagnosed locally."
+	echo ""
+	echo "4. Known issues for $MCP_NAME..."
+	case "$MCP_NAME" in
+	cloudflare-api)
+		echo "   - SSE-based remote MCP (type: sse)"
+		echo "   - Requires Cloudflare account and OAuth; errors if unauthenticated"
+		echo "   - Use: \"type\": \"sse\", \"url\": \"https://mcp.cloudflare.com/mcp\""
+		echo "   - To disable: set \"enabled\": false in your MCP config"
+		;;
+	openapi-search)
+		echo "   - SSE-based remote MCP (type: sse)"
+		echo "   - Requires network access to openapi-mcp.openapisearch.com"
+		echo "   - Use: \"type\": \"sse\", \"url\": \"https://openapi-mcp.openapisearch.com/mcp\""
+		echo "   - To disable: set \"enabled\": false in your MCP config"
+		;;
+	context7)
+		echo "   - Remote MCP, no local command needed"
+		echo "   - Use: \"type\": \"remote\", \"url\": \"https://mcp.context7.com/mcp\""
+		;;
+	*)
+		echo "   - Remote/SSE MCP (type: ${MCP_CONFIGURED_TYPE}) — no local command required"
+		echo "   - To disable: set \"enabled\": false in your MCP config"
+		;;
+	esac
+	exit 0
+fi
 
 if command -v "$CLI_CMD" &>/dev/null; then
 	echo -e "   ${GREEN}✓ Command found: $(which "$CLI_CMD")${NC}"
@@ -65,29 +449,72 @@ if [[ "$INSTALLED_VERSION" != *"$LATEST_VERSION"* ]] && [[ "$LATEST_VERSION" != 
 	echo -e "   ${YELLOW}⚠️  UPDATE AVAILABLE - run: npm update -g $NPM_PKG${NC}"
 fi
 
-# 3. Check OpenCode config
+# 3. Check runtime configs for MCP (t1665.5 — registry-driven)
 echo ""
-echo "3. Checking OpenCode configuration..."
-CONFIG_FILE="$HOME/.config/opencode/opencode.json"
-if [[ -f "$CONFIG_FILE" ]]; then
-	if grep -q "\"$MCP_NAME\"" "$CONFIG_FILE"; then
-		echo -e "   ${GREEN}✓ MCP configured in opencode.json${NC}"
+echo "3. Checking runtime configurations..."
+
+# Build list of config files to check from registry, fallback to hardcoded
+_MCP_DIAG_CONFIGS=()
+if type rt_detect_configured &>/dev/null; then
+	while IFS= read -r _rt_id; do
+		_cfg=$(rt_config_path "$_rt_id") || continue
+		[[ -n "$_cfg" && -f "$_cfg" ]] && _MCP_DIAG_CONFIGS+=("$_rt_id:$_cfg")
+	done < <(rt_detect_configured)
+fi
+# Fallback if registry not loaded or no configs found — check platform-aware candidates
+if [[ ${#_MCP_DIAG_CONFIGS[@]} -eq 0 ]]; then
+	declare -a _fallback_candidates
+	_fallback_candidates=(
+		"claude-code:$HOME/.claude.json"
+		"claude-code:$HOME/.config/Claude/Claude.json"
+		"claude-code:$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+		"opencode:$HOME/.config/opencode/opencode.json"
+	)
+	_fc=""
+	_fc_rt=""
+	_fc_path=""
+	for _fc in "${_fallback_candidates[@]}"; do
+		_fc_rt="${_fc%%:*}"
+		_fc_path="${_fc#*:}"
+		[[ -f "$_fc_path" ]] && _MCP_DIAG_CONFIGS+=("${_fc_rt}:${_fc_path}")
+	done
+fi
+
+_mcp_found_in_any=0
+for _diag_entry in "${_MCP_DIAG_CONFIGS[@]}"; do
+	_diag_rt="${_diag_entry%%:*}"
+	CONFIG_FILE="${_diag_entry#*:}"
+	_diag_name=""
+	if type rt_display_name &>/dev/null; then
+		_diag_name=$(rt_display_name "$_diag_rt") || _diag_name="$_diag_rt"
+	else
+		_diag_name="$_diag_rt"
+	fi
+
+	if grep -q "\"$MCP_NAME\"" "$CONFIG_FILE" 2>/dev/null; then
+		echo -e "   ${GREEN}✓ MCP configured in ${_diag_name} config${NC}"
 		# Extract and show the command using Python
 		python3 -c "
 import json
 with open('$CONFIG_FILE') as f:
     cfg = json.load(f)
-mcp = cfg.get('mcp', {}).get('$MCP_NAME', {})
+# Try both 'mcp' (opencode) and 'mcpServers' (other runtimes) root keys
+mcp = cfg.get('mcp', cfg.get('mcpServers', {})).get('$MCP_NAME', {})
 cmd = mcp.get('command', 'not set')
 enabled = mcp.get('enabled', 'not set')
 print(f'   Command: {cmd}')
 print(f'   Enabled: {enabled}')
 " 2>/dev/null || echo "   (Could not parse config)"
-	else
-		echo -e "   ${RED}✗ MCP not found in config${NC}"
+		_mcp_found_in_any=1
 	fi
-else
-	echo -e "   ${RED}✗ Config file not found: $CONFIG_FILE${NC}"
+done
+
+if [[ "$_mcp_found_in_any" -eq 0 ]]; then
+	if [[ ${#_MCP_DIAG_CONFIGS[@]} -eq 0 ]]; then
+		echo -e "   ${RED}✗ No runtime config files found${NC}"
+	else
+		echo -e "   ${RED}✗ MCP '$MCP_NAME' not found in any runtime config${NC}"
+	fi
 fi
 
 # 4. Check for known breaking changes
@@ -102,6 +529,24 @@ augment-context-engine | augment)
 context7)
 	echo "   - Remote MCP, no local command needed"
 	echo "   - Use: \"type\": \"remote\", \"url\": \"https://mcp.context7.com/mcp\""
+	;;
+cloudflare-api)
+	echo "   - SSE-based remote MCP (type: sse)"
+	echo "   - Requires Cloudflare account and OAuth; errors if unauthenticated"
+	echo "   - Use: \"type\": \"sse\", \"url\": \"https://mcp.cloudflare.com/mcp\""
+	echo "   - To disable: set \"enabled\": false in your MCP config"
+	;;
+openapi-search)
+	echo "   - SSE-based remote MCP (type: sse)"
+	echo "   - Requires network access to openapi-mcp.openapisearch.com"
+	echo "   - Use: \"type\": \"sse\", \"url\": \"https://openapi-mcp.openapisearch.com/mcp\""
+	echo "   - To disable: set \"enabled\": false in your MCP config"
+	;;
+playwright)
+	echo "   - Requires @anthropic-ai/mcp-server-playwright (npx -y)"
+	echo "   - Needs Playwright browsers installed: npx playwright install"
+	echo "   - May fail if browsers not installed or npx cache is stale"
+	echo "   - To reinstall: npx -y @anthropic-ai/mcp-server-playwright@latest"
 	;;
 *)
 	echo "   No known issues documented for this MCP"
@@ -130,4 +575,4 @@ echo "1. Update tool: npm update -g $NPM_PKG"
 echo "2. Check official docs for command changes"
 echo "3. Run: $CLI_CMD --help"
 echo "4. Check ~/.aidevops/agents/tools/ for updated documentation"
-echo "5. Run: opencode mcp list (to verify status after fixes)"
+echo "5. Verify MCP status in your runtime's config after fixes"

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # Observability Helper — LLM request tracking via JSONL log (t1307, t1337.5)
 # Commands: ingest | record | rate-limits | help
 # Storage: ~/.aidevops/.agent-workspace/observability/metrics.jsonl
@@ -397,65 +399,42 @@ check_rate_limit_risk() {
 	return 0
 }
 
-cmd_rate_limits() {
-	local json_flag=false provider_filter="" window_minutes=""
-	while [[ $# -gt 0 ]]; do
-		case "$1" in --json)
-			json_flag=true
-			shift
-			;;
-		--provider)
-			provider_filter="${2:-}"
-			shift 2
-			;;
-		--window)
-			window_minutes="${2:-}"
-			shift 2
-			;;
-		*) shift ;; esac
-	done
-	cmd_ingest --quiet >/dev/null 2>&1 || true
-
-	local config_file
-	config_file=$(_get_rate_limits_config) || config_file=""
-	local ew="${window_minutes:-$(_get_config_val "window_minutes" "$DEFAULT_WINDOW_MINUTES")}"
-	local wp
-	wp=$(_get_config_val "warn_pct" "$DEFAULT_WARN_PCT")
-	[[ "$ew" =~ ^[0-9]+$ && "$ew" -gt 0 ]] || {
-		print_error "--window must be a positive integer"
-		return 1
-	}
-	[[ "$wp" =~ ^[0-9]+$ ]] || wp="$DEFAULT_WARN_PCT"
-
-	# Collect providers
-	local -a providers=()
+# Collect unique provider names from config and metrics JSONL.
+# Prints one provider name per line to stdout.
+# Usage: _rl_collect_providers config_file provider_filter
+_rl_collect_providers() {
+	local config_file="$1" provider_filter="$2"
 	if [[ -n "$provider_filter" ]]; then
-		providers=("$provider_filter")
-	else
-		local seen=""
-		if [[ -n "$config_file" ]] && command -v jq &>/dev/null; then
-			while IFS= read -r p; do
-				[[ -z "$p" || "$seen" == *"|${p}|"* ]] && continue
-				providers+=("$p")
-				seen="${seen}|${p}|"
-			done < <(jq -r '.providers | keys[]' "$config_file" 2>/dev/null)
-		fi
-		if [[ -f "$OBS_METRICS" ]] && command -v jq &>/dev/null; then
-			while IFS= read -r p; do
-				[[ -z "$p" || "$seen" == *"|${p}|"* ]] && continue
-				providers+=("$p")
-				seen="${seen}|${p}|"
-			done < <(jq -r '.provider' "$OBS_METRICS" 2>/dev/null | sort -u)
-		fi
-	fi
-	[[ ${#providers[@]} -eq 0 ]] && {
-		[[ "$json_flag" == "true" ]] && echo "[]" || print_info "No provider data. Run 'ingest' first."
+		echo "$provider_filter"
 		return 0
-	}
+	fi
+	local seen=""
+	if [[ -n "$config_file" ]] && command -v jq &>/dev/null; then
+		while IFS= read -r p; do
+			[[ -z "$p" || "$seen" == *"|${p}|"* ]] && continue
+			echo "$p"
+			seen="${seen}|${p}|"
+		done < <(jq -r '.providers | keys[]' "$config_file" 2>/dev/null)
+	fi
+	if [[ -f "$OBS_METRICS" ]] && command -v jq &>/dev/null; then
+		while IFS= read -r p; do
+			[[ -z "$p" || "$seen" == *"|${p}|"* ]] && continue
+			echo "$p"
+			seen="${seen}|${p}|"
+		done < <(jq -r '.provider' "$OBS_METRICS" 2>/dev/null | sort -u)
+	fi
+	return 0
+}
 
-	# Build rows
-	local -a rows=()
-	for prov in "${providers[@]}"; do
+# Build pipe-delimited usage rows for each provider.
+# Each row: provider|req_used|req_limit|req_pct|tok_used|tok_limit|tok_pct|status|billing_type
+# Prints one row per line to stdout.
+# Usage: _rl_build_rows eff_window warn_pct provider [provider ...]
+_rl_build_rows() {
+	local ew="$1" wp="$2"
+	shift 2
+	local prov
+	for prov in "$@"; do
 		[[ -z "$prov" ]] && continue
 		local rl tl bt usage ar at rp=0 tp=0
 		rl=$(_get_rl_field "$prov" "requests_per_min")
@@ -472,25 +451,34 @@ cmd_rate_limits() {
 		mp=$(awk "BEGIN { print ($rp > $tp) ? $rp : $tp }")
 		[[ "$mp" -ge 95 ]] && st="critical"
 		[[ "$mp" -lt 95 && "$mp" -ge "$wp" ]] && st="warn"
-		rows+=("${prov}|${ar}|${rl}|${rp}|${at}|${tl}|${tp}|${st}|${bt}")
+		echo "${prov}|${ar}|${rl}|${rp}|${at}|${tl}|${tp}|${st}|${bt}"
 	done
+	return 0
+}
 
-	if [[ "$json_flag" == "true" ]]; then
-		local json_arr="[" first=true
-		for row in "${rows[@]}"; do
-			IFS='|' read -r pv a r rp2 t l tp2 s _ <<<"$row"
-			[[ "$first" == "true" ]] || json_arr="${json_arr},"
-			first=false
-			json_arr="${json_arr}{\"provider\":\"$pv\",\"requests_used\":${a:-0},\"requests_limit\":${r:-0},\"requests_pct\":${rp2:-0},\"tokens_used\":${t:-0},\"tokens_limit\":${l:-0},\"tokens_pct\":${tp2:-0},\"status\":\"$s\",\"window_minutes\":${ew:-1}}"
-		done
-		echo "${json_arr}]"
-		return 0
-	fi
+# Emit JSON array from pipe-delimited rows on stdin. Usage: _rl_output_json eff_window
+_rl_output_json() {
+	local ew="$1"
+	local json_arr="[" first=true row
+	while IFS= read -r row; do
+		IFS='|' read -r pv a r rp2 t l tp2 s _ <<<"$row"
+		[[ "$first" == "true" ]] || json_arr="${json_arr},"
+		first=false
+		json_arr="${json_arr}{\"provider\":\"$pv\",\"requests_used\":${a:-0},\"requests_limit\":${r:-0},\"requests_pct\":${rp2:-0},\"tokens_used\":${t:-0},\"tokens_limit\":${l:-0},\"tokens_pct\":${tp2:-0},\"status\":\"$s\",\"window_minutes\":${ew:-1}}"
+	done
+	echo "${json_arr}]"
+	return 0
+}
 
+# Emit human-readable table from pipe-delimited rows on stdin.
+# Usage: _rl_output_table eff_window warn_pct config_file
+_rl_output_table() {
+	local ew="$1" wp="$2" config_file="$3"
 	printf "\nRate Limit Utilisation (%smin window, warn at %s%%)\n" "$ew" "$wp"
 	[[ -z "$config_file" ]] && print_warning "No rate-limits.json found"
 	printf "  %-12s %6s %10s %5s %8s %10s %5s %s\n" "Provider" "Reqs" "Limit" "Pct" "Tokens" "Limit" "Pct" "Status"
-	for row in "${rows[@]}"; do
+	local row
+	while IFS= read -r row; do
 		IFS='|' read -r pv a r rp2 t l tp2 s _ <<<"$row"
 		local sd="$s"
 		[[ "$s" == "critical" ]] && sd="${RED}CRITICAL${NC}"
@@ -499,13 +487,177 @@ cmd_rate_limits() {
 		printf "  %-12s %6s %10s %4s%% %8s %10s %4s%% %b\n" "$pv" "$a" "${r:-n/a}" "$rp2" "$t" "${l:-n/a}" "$tp2" "$sd"
 	done
 	echo ""
+	return 0
+}
+
+cmd_rate_limits() {
+	local json_flag=false provider_filter="" window_minutes=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--json)
+			json_flag=true
+			shift
+			;;
+		--provider)
+			provider_filter="${2:-}"
+			shift 2
+			;;
+		--window)
+			window_minutes="${2:-}"
+			shift 2
+			;;
+		*) shift ;;
+		esac
+	done
+	cmd_ingest --quiet >/dev/null 2>&1 || true
+
+	local config_file
+	config_file=$(_get_rate_limits_config) || config_file=""
+	local ew="${window_minutes:-$(_get_config_val "window_minutes" "$DEFAULT_WINDOW_MINUTES")}"
+	local wp
+	wp=$(_get_config_val "warn_pct" "$DEFAULT_WARN_PCT")
+	[[ "$ew" =~ ^[0-9]+$ && "$ew" -gt 0 ]] || {
+		print_error "--window must be a positive integer"
+		return 1
+	}
+	[[ "$wp" =~ ^[0-9]+$ ]] || wp="$DEFAULT_WARN_PCT"
+
+	local providers_out
+	providers_out=$(_rl_collect_providers "$config_file" "$provider_filter")
+	[[ -z "$providers_out" ]] && {
+		[[ "$json_flag" == "true" ]] && echo "[]" || print_info "No provider data. Run 'ingest' first."
+		return 0
+	}
+
+	local rows_out
+	rows_out=$(while IFS= read -r prov; do
+		_rl_build_rows "$ew" "$wp" "$prov"
+	done <<<"$providers_out")
+
+	if [[ "$json_flag" == "true" ]]; then
+		_rl_output_json "$ew" <<<"$rows_out"
+	else
+		_rl_output_table "$ew" "$wp" "$config_file" <<<"$rows_out"
+	fi
+	return 0
+}
+
+# =============================================================================
+# Cache Health Check (t1858)
+# =============================================================================
+# Queries the SQLite DB for prompt cache hit rates per model over a time window.
+# Flags models where cache_read / (cache_read + input) drops below a threshold.
+# Designed for: manual spot-checks, pulse integration, and session greeting.
+
+readonly DEFAULT_CACHE_THRESHOLD=90
+readonly DEFAULT_CACHE_WINDOW_HOURS=24
+
+cmd_cache_health() {
+	local json_flag=false threshold="$DEFAULT_CACHE_THRESHOLD" window_hours="$DEFAULT_CACHE_WINDOW_HOURS"
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--json)
+			json_flag=true
+			shift
+			;;
+		--threshold)
+			threshold="${2:-$DEFAULT_CACHE_THRESHOLD}"
+			shift 2
+			;;
+		--window)
+			window_hours="${2:-$DEFAULT_CACHE_WINDOW_HOURS}"
+			shift 2
+			;;
+		*) shift ;;
+		esac
+	done
+
+	local obs_db="${OBS_DIR}/llm-requests.db"
+	[[ -f "$obs_db" ]] || {
+		print_error "SQLite DB not found at $obs_db"
+		return 1
+	}
+	command -v sqlite3 &>/dev/null || {
+		print_error "sqlite3 required"
+		return 1
+	}
+
+	# Single query: per-model cache stats over the window, only for providers
+	# with Anthropic-style prompt caching (cache_read > 0 somewhere).
+	local result
+	result=$(sqlite3 -separator '|' "$obs_db" "
+		SELECT
+			model_id,
+			COUNT(*) AS requests,
+			SUM(tokens_cache_read) AS cache_read,
+			SUM(tokens_cache_write) AS cache_write,
+			SUM(tokens_input) AS uncached_input,
+			ROUND(
+				CAST(SUM(tokens_cache_read) AS REAL)
+				/ NULLIF(SUM(tokens_cache_read) + SUM(tokens_input), 0) * 100, 1
+			) AS cache_pct
+		FROM llm_requests
+		WHERE timestamp > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${window_hours} hours')
+		GROUP BY model_id
+		HAVING SUM(tokens_cache_read) + SUM(tokens_cache_write) > 0
+		ORDER BY requests DESC;
+	" 2>/dev/null) || result=""
+
+	[[ -z "$result" ]] && {
+		if [[ "$json_flag" == "true" ]]; then
+			echo '{"status":"ok","models":[],"message":"No cacheable requests in window"}'
+		else
+			print_info "No cacheable requests in the last ${window_hours}h"
+		fi
+		return 0
+	}
+
+	local overall_status="ok" degraded_models=""
+
+	if [[ "$json_flag" == "true" ]]; then
+		local json_arr="[" first=true
+		while IFS='|' read -r model reqs cr cw ui pct; do
+			[[ -z "$model" ]] && continue
+			local status="ok"
+			if [[ -n "$pct" ]] && awk "BEGIN { exit !($pct < $threshold) }"; then
+				status="degraded"
+				overall_status="degraded"
+			fi
+			[[ "$first" == "true" ]] || json_arr="${json_arr},"
+			first=false
+			json_arr="${json_arr}{\"model\":\"${model}\",\"requests\":${reqs:-0},\"cache_read\":${cr:-0},\"cache_write\":${cw:-0},\"uncached_input\":${ui:-0},\"cache_pct\":${pct:-0},\"status\":\"${status}\"}"
+		done <<<"$result"
+		echo "{\"status\":\"${overall_status}\",\"threshold\":${threshold},\"window_hours\":${window_hours},\"models\":${json_arr}]}"
+	else
+		printf "\nPrompt Cache Health (%sh window, threshold %s%%)\n" "$window_hours" "$threshold"
+		printf "  %-30s %8s %12s %12s %7s %s\n" "Model" "Requests" "Cache Read" "Uncached" "Hit %" "Status"
+		while IFS='|' read -r model reqs cr cw ui pct; do
+			[[ -z "$model" ]] && continue
+			local status="${GREEN}ok${NC}"
+			if [[ -n "$pct" ]] && awk "BEGIN { exit !($pct < $threshold) }"; then
+				status="${YELLOW}DEGRADED${NC}"
+				overall_status="degraded"
+				degraded_models="${degraded_models}${model} (${pct}%), "
+			fi
+			printf "  %-30s %8s %12s %12s %6s%% %b\n" "$model" "$reqs" "$cr" "$ui" "$pct" "$status"
+		done <<<"$result"
+		echo ""
+		if [[ "$overall_status" == "degraded" ]]; then
+			print_warning "Cache degradation: ${degraded_models%, }"
+		else
+			print_success "All models above ${threshold}% cache hit rate"
+		fi
+	fi
+
+	[[ "$overall_status" == "ok" ]] && return 0
+	return 1
 }
 
 cmd_help() {
 	cat <<EOF
 Observability Helper — LLM request tracking via JSONL log
 Usage: observability-helper.sh [command] [options]
-Commands: ingest | record (--model X) | rate-limits (--json, --provider, --window) | help
+Commands: ingest | record (--model X) | rate-limits (--json, --provider, --window) | cache-health (--json, --threshold, --window) | help
 
 Record options:
   --model MODEL          Model name (required)
@@ -532,6 +684,7 @@ main() {
 	case "$command" in
 	ingest | parse | import) cmd_ingest "$@" ;; record | r) cmd_record "$@" ;;
 	rate-limits | rate_limits | ratelimits | rl) cmd_rate_limits "$@" ;;
+	cache-health | cache_health | ch) cmd_cache_health "$@" ;;
 	help | --help | -h) cmd_help ;; *)
 		print_error "Unknown: $command"
 		cmd_help

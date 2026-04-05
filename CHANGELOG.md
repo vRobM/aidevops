@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -6,6 +9,1519 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [3.6.94] - 2026-04-05
+
+### Fixed
+
+- `_install_pulse_systemd` missing PATH env var causes workers to exit 127 on Linux; add `Environment=PATH=...` to service unit matching launchd plist behaviour (GH#17405)
+- `_install_pulse_systemd` timer stalls on mid-session install due to missing `OnActiveSec`; add `OnActiveSec=10s` to bootstrap first service run (GH#17405)
+
+## [3.6.89] - 2026-04-04
+
+### Fixed
+
+- `aidevops update` now regenerates existing systemd service files in non-interactive mode — fixes broken service files from GH#17369 not reaching users via `aidevops update` (#17382)
+
+## [3.5.840] - 2026-04-03
+
+### Changed
+
+- Tightened glm-ocr.md agent doc (79→75 lines) — moved limitations to Quick Reference, consolidated bash blocks, replaced model comparison table with decision table (#16324)
+
+## [3.5.829] - 2026-04-03
+
+### Changed
+
+- Tightened hyperdrive-patterns.md agent doc (125→115 lines) — consolidated redundant SET examples in Connection Pooling section; zero information loss (#16441)
+
+## [3.5.827] - 2026-04-03
+
+### Changed
+
+- Tightened git-security.md agent doc (114→108 lines) — removed redundant frontmatter defaults, out-of-scope auth examples, and redundant tool mention; zero information loss (#16442)
+
+## [3.5.784] - 2026-04-03
+
+### Changed
+
+- Tightened toon.md agent doc (94→80 lines) — removed redundant Format Examples section (inline in Quick Reference), renamed section header; zero information loss (#15872)
+
+## [3.5.694] - 2026-04-02
+
+### Changed
+
+- Tightened github-actions.md agent doc (79→69 lines) — removed redundant Workflow Behavior section, condensed CODACY_API_TOKEN setup steps (#15899)
+
+## [3.5.636] - 2026-04-02
+
+### Fixed
+
+- Fix broken chapter links in production-video.md index — corrected 9 paths from video/NN-*.md to production-video-NN-*.md (#15684)
+
+## [3.5.635] - 2026-04-02
+
+### Changed
+
+- Tightened changelog.md agent doc (66→59 lines) — compressed prose, merged redundant sections, zero content loss (#15672)
+
+## [3.5.596] - 2026-04-02
+
+### Changed
+
+- plan Linux/WSL2 platform support — brief and TODO entry
+
+### Fixed
+
+- make changelog entries self-explanatory by resolving task IDs (#15392)
+
+## [3.5.555] - 2026-04-01
+
+### Changed
+
+- Maintenance: claim t1734
+- Maintenance: claim t1733
+
+### Fixed
+
+- resilient token rotation — wait instead of crashing on exhaustion (#15183)
+
+## [3.5.554] - 2026-04-01
+
+### Changed
+
+- Maintenance: claim t1732
+- Maintenance: claim t1731
+
+### Fixed
+
+- bypass broken select subprocess for model selection (#15181)
+
+## [3.5.553] - 2026-04-01
+
+### Changed
+
+- Maintenance: claim t1730
+- Maintenance: claim t1729
+- Maintenance: claim t1728
+- Maintenance: claim t1727
+- Maintenance: claim t1726
+- Maintenance: claim t1725
+- Maintenance: claim t1724
+- Maintenance: claim t1723
+- Maintenance: claim t1722
+- Maintenance: claim t1721
+- Maintenance: claim t1720
+- Maintenance: claim t1719
+- Maintenance: claim t1718
+- Maintenance: claim t1717
+- Maintenance: claim t1716
+- Maintenance: claim t1715
+
+### Fixed
+
+- isolate supervisor backoff from worker dispatch (#15167)
+
+## [3.5.552] - 2026-04-01
+
+### Fixed
+
+- activity watchdog exit code race condition (#15120)
+
+## [3.5.551] - 2026-04-01
+
+### Fixed
+
+- isolate headless worker auth via XDG_DATA_HOME (#15114)
+
+## [3.5.550] - 2026-04-01
+
+### Fixed
+
+- stop false provider backoff from local/worker failures (#15108)
+
+## [3.5.549] - 2026-04-01
+
+### Fixed
+
+- stop headless workers from rotating shared OAuth token (#15099)
+
+## [3.5.548] - 2026-04-01
+
+### Fixed
+
+- normalize expired cooldowns in MJS inject functions (#15098)
+
+## [3.5.547] - 2026-04-01
+
+### Fixed
+
+- pre-dispatch backoff check — don't launch workers on dead providers (#15097)
+- align output format fields with mission-orchestrator expectations (#14863)
+
+## [3.5.546] - 2026-04-01
+
+### Fixed
+
+- detect and kill stalled workers on rate-limited providers (#15086)
+
+## [3.5.545] - 2026-04-01
+
+### Added
+
+- deterministic merge pass — auto-merge ready PRs every cycle (#15080)
+
+## [3.5.544] - 2026-04-01
+
+### Changed
+
+- Maintenance: claim t1714
+- Documentation: tighten wrangler-patterns.md — remove duplication with sibling files (#13672)
+- Documentation: tighten cloudron-server-ops-skill.md (142→118 lines, GH#13704) (#13716)
+- Documentation: tighten revenuecat.md agent doc (158 → 152 lines) (#13748)
+- Documentation: tighten concurrency.md agent doc (221 -> 169 lines) (#13749)
+- Documentation: tighten feature-slicing migration.md (159→148 lines, regression fix) (#13761)
+- Documentation: tighten drizzle.md (132→122 lines) (#13770)
+- Documentation: tighten cro-chapter-25.md — remove structural noise and redundant prose (#13863)
+- Documentation: tighten meta-ads-foundations-algorithm.md — remove structural noise (#13898)
+- Documentation: tighten CRO chapter 02 — compress prose, preserve all knowledge (#13966)
+- Documentation: tighten video-higgsfield-ui.md (188→158 lines) — remove redundant CLI Options table, compress prompt tips and prose (#14049)
+- Documentation: tighten hexagonal.md 181→160 lines — flatten mermaid nesting, compress code blocks, remove redundant path comments (GH#14040) (#14061)
+- Documentation: tighten playwright-emulation.md (175→153 lines) — merge config blocks, consolidate touch into options, remove redundant multi-device recipe (#14062)
+- Documentation: tighten security.md (106→80 lines, 25% reduction) (#14086)
+- Documentation: tighten agent-browser.md (170→161 lines) — merge Sessions+Wait sections, fold iOS env vars into code block, move License to Quick Reference (#14115)
+- Documentation: tighten hashline-edit-format.md (139→135 lines, zero knowledge loss) (#14127)
+- Documentation: tighten research.md (113→106 lines) — clarify section semantics, compact sufficiency test (#14159)
+- Documentation: tighten sandbox-patterns.md — remove structural noise, preserve all knowledge (#14161)
+- Documentation: tighten serper.md (114→101 lines) — DRY curl headers, reorder by importance (#14188)
+- Documentation: tighten turborepo.md (137→122 lines) (#14205)
+- Maintenance: tighten bash-compat.md agent doc (105→77 lines) (#14221)
+- Documentation: tighten axe-cli.md (114→102 lines) — merge buttons into keyboard section, compress code comments, remove redundant Quick Reference lines (#14266)
+- Documentation: tighten smart-placement.md (90→79 lines) and deduplicate gotchas (87→72 lines) (#14301)
+- Documentation: tighten hyperdrive-patterns.md — remove structural noise, preserve all knowledge (#14376)
+- Documentation: tighten r2-gotchas.md — remove structural noise, merge common errors into sections (94→82 lines) (#14377)
+- Documentation: tighten budget-analysis.md — remove structural noise, compress prose (63→50 lines) (#14396)
+- Documentation: tighten pages-functions.md — compress prose, fix See Also links (57→49 lines) (#14432)
+- Refactor: split _install_pulse_launchd into focused subfunctions (#14493)
+- Documentation: tighten extraction-workflow.md prose without knowledge loss (#14506)
+- Documentation: tighten es2016-es2017.md reference doc (#14508)
+- Documentation: tighten Stagehand benchmark scripts agent doc (#14537)
+- Documentation: tighten Amazon SES provider guide (GH#14007) (#14540)
+- Documentation: tighten model-routing.md (135→111 lines, zero info loss) (#14555)
+- Documentation: tighten services.md prose (7.6% byte reduction, zero knowledge loss) (#14556)
+- Documentation: tighten app-dev-testing.md agent doc (131→115 lines) (#14563)
+- Documentation: tighten ahrefs integration quick reference (#14568)
+- Documentation: tighten email sequences framework agent doc (#14569)
+- Documentation: tighten toon.md - remove redundant description line (#14583)
+- Documentation: tighten durable-objects.md and fix broken internal links (#14584)
+- Maintenance: tighten agent doc legal.md (128→86 lines) (#14597)
+- Maintenance: merge cheatsheet-queries.md into queries.md, remove duplicate (#14600)
+- Documentation: tighten LinkedIn Content Subagent agent doc (#14640)
+- Documentation: tighten api-shield-patterns.md (127→101 lines) (#14641)
+- Documentation: tighten browser-benchmark.md (125 → 86 lines) (#14667)
+- Maintenance: tighten agent sources doc (#14684)
+- Maintenance: tighten conversation starter prompt flow (#14689)
+- Documentation: tighten mutations cheatsheet (65→56 lines) (#14691)
+- Maintenance: tighten campaign launch checklist (#14699)
+
+### Fixed
+
+- add session-level account affinity to prevent cross-session token overwrites (t1714) (#15079)
+- address PR #14278 review feedback on maintainer-gate.yml (#14443)
+- handle missing paths during setup backup rotation (#14632)
+
+## [3.5.543] - 2026-04-01
+
+### Changed
+
+- Maintenance: bump version to 3.5.542
+- Maintenance: tighten content/editor.md agent doc (GH#14243) (#15064)
+
+## [3.5.541] - 2026-04-01
+
+### Changed
+
+- Maintenance: add Claude CLI alignment comments to oauth-pool-helper.sh (#15063)
+
+## [3.5.540] - 2026-04-01
+
+### Changed
+
+- Maintenance: update simplification state
+
+### Fixed
+
+- break orphaned-assignment deadlock and fix silent prefetch failures (GH#15060) (#15058)
+
+## [3.5.539] - 2026-04-01
+
+### Changed
+
+- Maintenance: claim t1713
+- Documentation: tighten agent doc Git Worktree Workflow (#14816)
+- Maintenance: claim t1712
+- Documentation: tighten security-deps command doc (GH#14991)
+- Documentation: tighten memory-audit.md command doc (52→32 lines)
+- Documentation: tighten email-design-test.md (110 → 53 lines)
+- Documentation: tighten glm-ocr.md agent doc (GH#14181)
+- Maintenance: tighten Cloudflare Zaraz agent doc (110→102 lines)
+- Documentation: tighten xcodebuild-mcp.md agent doc
+- Documentation: tighten cold-outreach.md agent doc
+- Documentation: tighten feature.md agent doc (112->80 lines, 11% byte reduction)
+- Documentation: tighten self-improvement.md agent doc (GH#14450)
+- Documentation: tighten landing page structure framework (GH#14845)
+- Documentation: tighten GEO strategy guidance (GH#14842)
+- Documentation: clarify skill-scanner security override (GH#14833)
+- Documentation: tighten skill-scanner agent doc (GH#14833)
+- Documentation: tighten api-integrations.md — fix broken links, consolidate redundant columns
+- Documentation: tighten ddos-gotchas.md (116 -> 94 lines, 8% byte reduction)
+- Documentation: tighten dspyground.md agent doc (116 → 105 lines)
+- Documentation: tighten workers-ai.md (116 -> 15 lines, 87% reduction)
+- Documentation: tighten youtube-script.md command doc (61→49 lines)
+- Maintenance: record Playwright doc simplification state
+- Documentation: tighten playwright.md quick reference
+- Maintenance: track GH#14295 simplification state
+- Documentation: align email sequence pattern references
+- Documentation: tighten api-key-management.md (122 → 54 lines, 56% reduction)
+- Documentation: improve email sequence chapter navigation
+- Documentation: tighten bot-management-patterns guidance
+- Documentation: tighten and restructure Agents SDK gotchas (recheck)
+- Documentation: tighten ranking-opportunities.md (123→91 lines)
+- Documentation: tighten email-campaign.md (123→105 lines)
+- Maintenance: tighten instantly.md agent doc (71→61 lines) (#14678)
+
+### Fixed
+
+- resolve broken aidevops CLI symlink and add to non-interactive setup (#15057)
+- redirect _install_beads_node_tools() output to stderr
+
+## [3.5.538] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten model-specific subagent routing guide (#15012)
+
+## [3.5.537] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten cro-chapter-24.md from 123 to 54 lines (#14712)
+
+## [3.5.536] - 2026-03-31
+
+### Added
+
+- clarify chromium debug routing handoffs (#15006)
+- add chromium-debug-use skill and local CDP helper (#15007)
+
+## [3.5.535] - 2026-03-31
+
+### Added
+
+- add chromium-debug-use skill and local CDP helper (#15007)
+
+## [3.5.534] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+## [3.5.532] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten SRO Grounding agent doc (GH#14210) (#14919)
+- Maintenance: claim t1711
+
+## [3.5.531] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten encryption stack overview (#14526)
+
+## [3.5.530] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.529] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.528] - 2026-03-31
+
+### Fixed
+
+- count headless worker wrappers in pulse (#14955)
+
+## [3.5.527] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten LeadsForge agent doc (105→83 lines) (#14920)
+- Maintenance: add chromium-debug-use follow-up planning
+
+## [3.5.526] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.525] - 2026-03-31
+
+### Changed
+
+- Maintenance: claim t1710
+- Maintenance: claim t1709
+- Maintenance: claim t1708
+- Maintenance: claim t1707
+- Maintenance: claim t1706
+
+## [3.5.524] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten Hyperdrive agent doc (GH#14399) (#14900)
+- Documentation: tighten Socket MCP agent doc (#14882)
+- Documentation: tighten fallback-chains.md agent doc (GH#14190) (#14878)
+
+### Fixed
+
+- harden deterministic pulse fill floor counts (#14840)
+
+## [3.5.523] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten Hyperdrive agent doc (GH#14399) (#14900)
+- Documentation: tighten Socket MCP agent doc (#14882)
+- Documentation: tighten fallback-chains.md agent doc (GH#14190) (#14878)
+
+### Fixed
+
+- harden deterministic pulse fill floor counts (#14840)
+
+## [3.5.522] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.521] - 2026-03-31
+
+### Fixed
+
+- backfill simplification state before complexity scan (GH#14841) (#14846)
+
+## [3.5.520] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.519] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten worker-efficiency protocol prompt (GH#14810) (#14821)
+
+## [3.5.518] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten datasets.md agent doc wording (#14819)
+- Documentation: tighten worker-efficiency-protocol.md (122→120 lines, 12% byte reduction) (#14723)
+- Maintenance: tighten orbstack.md agent doc (121→75 lines) (#14746)
+- Documentation: tighten datasets.md agent doc (121→101 lines) (#14754)
+- Documentation: tighten email-verification.md agent doc (121 -> 95 lines) (#14757)
+- Maintenance: tighten pre-edit.md agent doc (118 -> 80 lines) (#14778)
+- Maintenance: tighten git-security.md agent doc (118 -> 95 lines) (#14780)
+- Documentation: tighten skill-scanner.md (118 -> 98 lines) (#14784)
+- Documentation: tighten geo-strategy.md agent doc (118 -> 106 lines) (#14785)
+- Documentation: tighten heygen-skill.md index — remove verbose sections, use tables (#14786)
+- Documentation: tighten list-todo.md (117 -> 62 lines) (#14793)
+- Documentation: tighten landing-page-structure agent doc (117 -> 103 lines) (#14795)
+
+## [3.5.517] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten api-shield-gotchas.md (51 -> 46 lines) (#14776)
+
+## [3.5.516] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.515] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.514] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.513] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten chore branch workflow guidance (#14722)
+- Documentation: tighten workers-patterns.md — add context, deduplicate deployment commands (#14724)
+
+## [3.5.512] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.511] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.510] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.509] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten bot-management-patterns.md (125→113 lines) (#14698)
+
+## [3.5.508] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.507] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.506] - 2026-03-31
+
+### Changed
+
+- Maintenance: tighten Claude-Flow comparison doc (#14688)
+
+## [3.5.504] - 2026-03-31
+
+### Changed
+
+- Maintenance: tighten aidevops-opencode plugin architecture doc (#14682)
+
+## [3.5.503] - 2026-03-31
+
+### Fixed
+
+- restore Tabby profile sync on Python 3.9 (#14680)
+
+## [3.5.502] - 2026-03-31
+
+### Changed
+
+- Maintenance: tighten jujutsu.md agent doc (125→90 lines) (#14665)
+
+## [3.5.501] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.500] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.499] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.498] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.497] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.496] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.495] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.494] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.493] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.492] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.491] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.490] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.489] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.488] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.487] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.486] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.485] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.484] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.483] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.482] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.481] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.480] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.479] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.478] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.477] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.476] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten workerd.md — merge intro sections, compress to table, fix See Also links (52→34 lines) (#14538)
+- Documentation: tighten workerd.md — merge intro sections, compress to table, fix See Also links (52→34 lines) (#14538)
+
+### Fixed
+
+- refill underfilled pulse slots during active monitoring (#14498)
+
+## [3.5.475] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.474] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.473] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.472] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.471] - 2026-03-31
+
+### Changed
+
+- Documentation: restore explanatory intros in es2016-es2017.md (#14504)
+
+## [3.5.470] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.469] - 2026-03-31
+
+### Changed
+
+- Documentation: tighten AEO/GEO content pattern wording (#14496)
+
+## [3.5.468] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.467] - 2026-03-31
+
+### Changed
+
+- Maintenance: tighten aeo-geo-patterns.md headings and MD031 compliance (#14488)
+
+## [3.5.466] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.465] - 2026-03-31
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.464] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten SKILL-SCAN-RESULTS.md — collapse duplicate scan rows, compress prose (68→37 lines) (#14417)
+
+### Fixed
+
+- address PR #14352 review feedback on agents-sdk-gotchas (#14461)
+
+## [3.5.463] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten mac.md — merge sections, remove structural noise (93→50 lines) (#14375)
+- Documentation: tighten score-responses.md command doc (#14364)
+- Documentation: tighten infraforge outreach agent guidance (#14353)
+- Documentation: tighten Agent SDK gotchas guidance (#14352)
+- Documentation: tighten sandbox.md — merge architecture into header, fix broken links (GH#14293) (#14299)
+- Documentation: tighten workerd-patterns.md — add context line, fix broken link (#13991)
+- Documentation: tighten meta-ads-creative-frameworks.md headings and structure (GH#13965) (#13997)
+- Documentation: tighten CQRS & Domain Events agent doc (191→183 lines) (#14000)
+- Documentation: tighten campaign launch checklist (175→144 lines) (#14004)
+
+### Fixed
+
+- clear expired cooldowns during pool reads (#14341)
+- preserve multiline health dashboard sections (#11001) (#14328)
+- reduce secret scan and npm audit noise (#14255)
+- add null-safety for missing .mcp key in migrations.sh (GH#14220) (#14237)
+
+## [3.5.462] - 2026-03-30
+
+### Fixed
+
+- tolerate missing mcp object in jq migration (#14244)
+
+## [3.5.461] - 2026-03-30
+
+### Fixed
+
+- guard legacy overwrite helper usage (#14236)
+
+## [3.5.460] - 2026-03-30
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.459] - 2026-03-30
+
+### Fixed
+
+- harden unattended worker progress under provider limits (#14219)
+
+## [3.5.458] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten langflow.md (162→153 lines) — DRY install steps, merge API sections, proper autolinks (#14187)
+
+## [3.5.457] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten onboarding wizard guide for GH#13999 (#14141)
+
+## [3.5.456] - 2026-03-30
+
+### Added
+
+- seed mission-control init and improve self-activity triage (#14126)
+
+### Changed
+
+- Documentation: tighten sales emails analysis language (#14139)
+- Documentation: tighten ahrefs.md (114→109 lines) — DRY auth headers, reorder by importance (#14140)
+- Documentation: tighten postgres-drizzle-skill.md (160→88 lines, 45% reduction) (#14113)
+- Maintenance: claim t1705
+
+## [3.5.455] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten voice-ai-models.md (154→147 lines) — compress Pick lines, collapse GPU table, remove formatting noise (#14038)
+- Documentation: tighten hexagonal.md 183→181 lines, zero information loss (GH#13970) (#13986)
+- Documentation: tighten pages-functions-patterns.md (173→171 lines) (#13990)
+- Documentation: tighten playwright-emulation.md prose and structure (#13987)
+- Documentation: tighten Higgsfield UI Automator agent doc (#13988)
+- Documentation: add star history chart to README
+- Maintenance: release v3.5.454
+- Documentation: tighten hexagonal.md 186→183 lines, zero information loss (GH#13933) (#13957)
+- Maintenance: tighten workerd-patterns.md, remove redundant prose (#13960)
+- Documentation: tighten playwright-emulation.md (GH#13935) (#13952)
+
+### Fixed
+
+- restore automatic OpenCode session title sync (#14074)
+
+## [3.5.443] - 2026-03-30
+
+### Changed
+
+- Maintenance: update marketplace.json for v3.5.442
+- Maintenance: release v3.5.442
+- Maintenance: bump version to 3.5.442
+- Documentation: tighten pages-functions-patterns.md (182→178 lines) (#13929)
+
+## [3.5.438] - 2026-03-30
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.5.410] - 2026-03-30
+
+### Changed
+
+- Maintenance: bump version to 3.5.407
+- Documentation: tighten mission-orchestrator.md — merge duplicate dispatch blocks, normalize unicode, compress prose (#13841)
+- Documentation: tighten email-composition.md — remove structural noise and redundancy (158 → 144 lines) (#13837)
+
+## [3.5.373] - 2026-03-30
+
+### Changed
+
+- Maintenance: bump version to 3.5.372
+- Documentation: GH#13581: tighten pages-patterns.md, remove redundant prose (#13595)
+
+## [3.5.369] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten pdf/overview.md (149→74 lines, remove redundant prose/examples) (#13510)
+- Maintenance: bump version to 3.5.368
+- Documentation: tighten email-providers.md (165→157 lines) (#13570)
+- Documentation: tighten fly-io.md agent doc (GH#13579, 140→135 lines) (#13596)
+
+## [3.5.366] - 2026-03-30
+
+### Changed
+
+- Maintenance: release v3.5.365
+- Maintenance: update simplification state registry
+- Maintenance: release v3.5.364
+- Documentation: tighten fly-io.md agent doc (GH#13556, 151→140 lines) (#13563)
+- Documentation: tighten services.md prose — compress verbose phrasing, preserve all content (#13529)
+- Documentation: tighten sql-migrations.md (205 → 197 lines, add no-tx convention) (#13485)
+- Documentation: tighten production-audio.md (151→139 lines, remove redundant pipeline block/checklist) (#13490)
+- Maintenance: tighten humanise.md - compress YAML description and remove redundant inline example (#13522)
+- Documentation: tighten management.md Quality Management Specification (GH#13060) (#13528)
+- Maintenance: GH#12987 tighten bing-webmaster-tools.md (163→108 lines) (#13537)
+- Maintenance: release v3.5.363
+- Maintenance: update simplification state registry
+- Documentation: tighten aidevops-opencode plugin architecture doc (165→109 lines) (#13553)
+- Maintenance: update simplification state registry
+- Maintenance: bump version to 3.5.361
+- Maintenance: release v3.5.360
+- Maintenance: GH#12978 tighten dns-providers.md agent doc (164→141 lines) (#13548)
+- Maintenance: GH#12981 tighten wiki-update workflow doc (#13541)
+- Documentation: tighten smime-setup.md agent doc (GH#12979) (#13546)
+- Documentation: GH#12989: tighten Advantage+ Campaigns agent doc (#13535)
+- Maintenance: release v3.5.356
+- Maintenance: release v3.5.355
+- Maintenance: release v3.5.354
+- Documentation: tighten email-health-check.md (149→133 lines) (#13487)
+- Documentation: tighten browser-automation.md — merge intro lines, remove misplaced setup ref (140→136 lines) (#13488)
+- Documentation: tighten email-testing.md (149→128 lines) — merge CSS/engine tables, drop redundant tool comparison (#13491)
+- Documentation: tighten pages-patterns.md (149→132 lines, flatten Best Practices subsections) (#13492)
+- Maintenance: release v3.5.353
+- Documentation: tighten autogen.md (148→140 lines) (#13493)
+- Maintenance: release v3.5.352
+- Documentation: tighten production-audio.md (151→139 lines, remove redundant pipeline block/checklist) (#13478)
+- Documentation: tighten security-analysis.md — merge MCP section into Integrations (151→142 lines) (#13467)
+- Documentation: tighten imessage.md (155→148 lines) (#13468)
+- Documentation: tighten migration.md (197→165 lines, remove redundant phase table/mapping dupes) (#13466)
+- Maintenance: update simplification state registry
+- Maintenance: tighten cro-chapters.md index (GH#13398) (#13457)
+
+## [3.5.362] - 2026-03-30
+
+### Changed
+
+- Maintenance: update simplification state registry
+- Maintenance: bump version to 3.5.361
+
+## [3.5.358] - 2026-03-30
+
+### Changed
+
+- Documentation: GH#12989: tighten Advantage+ Campaigns agent doc (#13535)
+
+## [3.5.357] - 2026-03-30
+
+### Changed
+
+- Maintenance: release v3.5.356
+
+## [3.5.353] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten flowcharts.md (161→134 lines, -17%, GH#13174) (#13523)
+
+## [3.5.344] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten architecture.md prose (157→124 lines, zero knowledge loss) (#13445)
+- Documentation: tighten session-manager.md (135→105 lines, GH#13438) (#13443)
+- Documentation: tighten ai-writing-detection.md prose (GH#13423) (#13444)
+- Documentation: tighten security-analysis.md agent doc (164→151 lines) (#13442)
+
+## [3.5.339] - 2026-03-30
+
+### Changed
+
+- Maintenance: release v3.5.338
+
+## [3.5.335] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten image-seo.md — collapse duplicate batch workflow (151→133 lines) (#13424)
+- Documentation: tighten cloudron-app-publishing-skill.md (150→111 lines, 26% reduction) (#13426)
+- Maintenance: tighten content/optimization.md agent doc (148→135 lines) (#13425)
+- Documentation: GH#13128: tighten session-manager.md (156→135 lines) (#13412)
+- Documentation: tighten autogen.md — remove redundant prose, trim verbose comments (#13417)
+- Maintenance: tighten agent-testing.md (151→138 lines) (#13416)
+
+## [3.5.332] - 2026-03-30
+
+### Changed
+
+- Documentation: tighten architecture.md prose (164→157 lines, zero knowledge loss) (#13407)
+
+## [3.5.319] - 2026-03-29
+
+### Changed
+
+- Documentation: tighten Favicon Debugger agent doc prose (#13302)
+- Maintenance: release v3.5.318
+- Documentation: tighten programmatic-seo.md prose (GH#13239) (#13301)
+- Documentation: GH#13240 tighten cro-chapter-01.md prose (145→117 lines, all knowledge preserved) (#13294)
+
+### Fixed
+
+- add signature footer gate to plugin quality hooks (GH#12805) (#13303)
+
+## [3.5.318] - 2026-03-29
+
+### Fixed
+
+- add signature footer gate to plugin quality hooks (GH#12805) (#13303)
+
+## [3.5.314] - 2026-03-29
+
+### Changed
+
+- Documentation: GH#13238 tighten app-dev-backend.md prose (145→113 lines) (#13293)
+- Documentation: tighten ios-simulator-mcp.md prose (142→121 lines, GH#13264) (#13299)
+- Documentation: GH#13246 tighten d1-patterns.md prose (#13296)
+- Documentation: GH#13245: tighten context-builder.md prose (144→130 lines) (#13297)
+- Documentation: tighten workers-for-platforms-gotchas.md prose (141→115 lines) (#13291)
+- Documentation: tighten email-design-test.md prose (GH#13272) (#13292)
+
+### Fixed
+
+- preserve aidevops plugin registration in opencode.json (#13298)
+
+## [3.5.312] - 2026-03-29
+
+### Changed
+
+- Refactor: separate universal prompt rules from aidevops-specific guidance (#13228)
+- Maintenance: update simplification state registry
+
+## [3.5.311] - 2026-03-29
+
+### Changed
+
+- Maintenance: update simplification state registry
+
+### Fixed
+
+- use atomic JSON writes to prevent config truncation on crash (#13181)
+
+## [3.5.297] - 2026-03-29
+
+### Changed
+
+- Documentation: tighten architecture.md prose without knowledge loss (#13116)
+
+### Fixed
+
+- show elapsed time and 0 tokens for pulse bash routine (GH#13099) (#13117)
+
+## [3.5.281] - 2026-03-29
+
+### Changed
+
+- Documentation: tighten image-understanding.md — merge redundant model tables, fold Gemini note into comment (#13068)
+
+## [3.5.277] - 2026-03-29
+
+### Fixed
+
+- reject non-project dirs, add --no-session for standalone callers (GH#13046) (#13058)
+
+## [3.5.274] - 2026-03-29
+
+### Changed
+
+- Maintenance: release v3.5.273
+- Documentation: tighten code-simplifier.md agent doc (200→198 lines) (#13033)
+
+### Fixed
+
+- Linux compat — remove PPID gate, broaden session detection, robust version (GH#13012) (#13021)
+
+## [3.5.270] - 2026-03-29
+
+### Changed
+
+- Documentation: tighten compare-models.md (189→172 lines, GH#12852) (#13017)
+- Documentation: GH#12688: tighten ad-creative-chapter-09.md (#13015)
+
+## [3.5.147] - 2026-03-29
+
+### Changed
+
+- Maintenance: update simplification state registry
+
+### Fixed
+
+- add zero-agent guard to prevent OpenCode crash (#12615)
+
+## [3.5.1] - 2026-03-28
+
+### Fixed
+
+- detect stale Homebrew install during aidevops update (GH#11470) (#12106)
+
+## [3.5.0] - 2026-03-28
+
+### Changed
+
+- Refactor: flatten remaining nested dirs in tools/ (#12107)
+
+## [3.4.193] - 2026-03-28
+
+### Changed
+
+- Refactor: flatten remaining nested dirs in tools/ (#12107)
+
+## [3.4.0] - 2026-03-28
+
+### Changed
+
+- Refactor: merge Social-Media into Content, Sales+Marketing into Marketing-Sales (#11372)
+- Maintenance: update simplification state registry
+
+## [3.3.0] - 2026-03-28
+
+### Changed
+
+- Refactor: merge Video into Content, Accounts into Business (#11347)
+- Documentation: tighten opencode-github.md from 328 to 192 lines (41% reduction) (#11349)
+- Refactor: merge Video into Content, Accounts into Business
+
+## [3.2.9] - 2026-03-28
+
+### Changed
+
+- Refactor: complete .agents/ structure cleanup (#11304)
+- Documentation: simplify UGC & Video Scripts agent doc (439→350 lines) (#11297)
+- Maintenance: update simplification state registry
+
+## [3.2.7] - 2026-03-28
+
+### Fixed
+
+- always clean stale files during agent deployment (#11288)
+
+## [3.2.0] - 2026-03-28
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.1.442] - 2026-03-28
+
+### Changed
+
+- Maintenance: raise simplification open-issue cap from 100 to 500 (#11272)
+- Refactor: reorganise .agents/ structure for scalability (#11127)
+- Maintenance: raise simplification scan rate from 5 to 200 issues per run (#11126)
+- Documentation: codify .agents/ architecture conventions for scalability (#11124)
+
+### Fixed
+
+- run complexity scan every pulse cycle (15 min) instead of daily (#11271)
+
+## [3.1.439] - 2026-03-28
+
+### Fixed
+
+- wire cross-machine claim lock into deterministic dedup guard (GH#11086) (#11121)
+
+## [3.1.315] - 2026-03-27
+
+### Fixed
+
+- remove 500-line size gate from md simplification scan (t1679) (#6879)
+
+## [3.1.310] - 2026-03-27
+
+### Changed
+
+- Refactor: terse pass on build.txt and AGENTS.md — compress prose without losing rules (#6868)
+
+## [3.1.289] - 2026-03-27
+
+### Added
+
+- add Tabby terminal profile generator from repos.json (#6786)
+
+## [3.1.154] - 2026-03-25
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.1.106] - 2026-03-25
+
+### Added
+
+- extend complexity scan to .md agent docs, daily interval, longest-first (#5693)
+
+### Fixed
+
+- clarify advisory output string concatenation (PR #5689 follow-up) (#5691)
+- key commands shows 'aidevops security' not 'aidevops security scan'
+
+## [3.1.104] - 2026-03-25
+
+### Changed
+
+- Documentation: add asc-cli dependency check and update web apps section (#5690)
+
+## [3.1.94] - 2026-03-24
+
+### Changed
+
+- Refactor: reduce function complexity in oauth-pool-helper.sh (GH#5643) (#5654)
+
+## [3.1.89] - 2026-03-24
+
+### Changed
+
+- Refactor: disable proactive refresh, keep as commented-out option (#5613)
+
+## [3.1.88] - 2026-03-24
+
+### Fixed
+
+- handle 401/403 (server-side token revocation) in OAuth pool with auto-refresh (#5612)
+
+## [3.1.80] - 2026-03-23
+
+### Changed
+
+- Maintenance: add OpenCode to NPM_TOOLS with bun/npm auto-detection (#5570)
+
+### Fixed
+
+- add cooldown check to oauth-pool fallback account selection (#5552) (#5567)
+
+## [3.1.79] - 2026-03-23
+
+### Fixed
+
+- inject OAuth tokens via env vars — works on all OpenCode versions (#5561)
+
+## [3.1.78] - 2026-03-23
+
+### Added
+
+- add aidevops opencode-sandbox command for isolated version testing (#5548)
+
+## [3.1.77] - 2026-03-23
+
+### Changed
+
+- Maintenance: pin OpenCode to 1.2.27 — versions >1.2.27 break OAuth (#5547)
+
+## [3.1.76] - 2026-03-23
+
+### Fixed
+
+- Homebrew wrapper prefers git repo aidevops.sh over installed snapshot (#5545)
+
+## [3.1.75] - 2026-03-23
+
+### Fixed
+
+- correct OAuth setup docs — opencode auth login is API key only (#5544)
+
+## [3.1.74] - 2026-03-23
+
+### Fixed
+
+- npm wrapper prefers git repo aidevops.sh over bundled copy (#5543)
+
+## [3.1.73] - 2026-03-23
+
+### Changed
+
+- Maintenance: remove opencode-antigravity-auth plugin on update (#5542)
+
+## [3.1.72] - 2026-03-23
+
+### Fixed
+
+- pool injection idle status + headless dispatch timing race (#5541)
+- restore cmd_rotate (auth.json), cmd_status, cmd_assign_pending lost in PR #5535 merge (#5536)
+
+## [3.1.71] - 2026-03-23
+
+### Changed
+
+- Documentation: mention @auth-troubleshooting agent and free model fallback in README (#5539)
+
+## [3.1.70] - 2026-03-23
+
+### Changed
+
+- Refactor: move auth troubleshooting to subagent, pointer in AGENTS.md (#5538)
+
+## [3.1.69] - 2026-03-23
+
+### Added
+
+- add status/assign-pending commands and auth troubleshooting docs (#5537)
+
+## [3.1.68] - 2026-03-23
+
+### Added
+
+- add aidevops model-accounts-pool CLI command with rotate and reset-cooldowns (#5535)
+
+## [3.1.63] - 2026-03-22
+
+### Added
+
+- add process-approved command to draft-response-helper
+
+### Changed
+
+- Maintenance: claim t1556
+
+### Fixed
+
+- use post-action timestamp for self-consumption loop guard (#5518)
+- capture gh api error output in draft-response subscription warning (GH#5511) (#5514)
+- simplify draft_responses feature flag to default-true pattern (GH#5508) (#5513)
+- simplify draft_responses feature flag check per Gemini review (GH#5492) (#5500)
+- remove unused print_error stub from test-migrate-orphaned-supervisor.sh (#5501)
+
+## [3.1.56] - 2026-03-22
+
+### Changed
+
+- Documentation: update browser-use doc to v0.12.x API (Tools, CLI, Cloud, ChatBrowserUse) (#5463)
+
+### Fixed
+
+- skip launchd plist reload when content unchanged to preserve StartInterval timers (#5464)
+
+## [3.1.55] - 2026-03-22
+
+### Fixed
+
+- detect default branch for profile repo push instead of hardcoding main (#5462)
+
+## [3.1.43] - 2026-03-21
+
+### Changed
+
+- Performance: hoist statusOrder constant to module scope in provider-auth (#5435)
+- Refactor: simplify open_browser() with for-loop over browser commands (#5410)
+
+### Fixed
+
+- re-enable auth hook as single object (not array) (#5444)
+- store claudebar release URL in variable for maintainability (#5434)
+
+## [3.1.42] - 2026-03-21
+
+### Added
+
+- add ClaudeBar to setup and upstream watch (#5420)
+
+### Changed
+
+- Maintenance: fix spelling optimisation→optimization in social-media.md (#5414)
+
+### Fixed
+
+- sync TOON plan status/phase with human-readable Completed headers (#5421)
+- use jq // empty and remove 2>/dev/null on repos.json reads (#5417)
+- harden unknown status sorting and remove dead constants in provider-auth (#5412)
+- robust Status-line lookup in sync_plans_status (GH#5392) (#5411)
+- use // empty in jq to eliminate null string check (GH#5385) (#5419)
+
+## [3.1.41] - 2026-03-21
+
+### Fixed
+
+- install profile update job whenever gh is available, not only when profile repo exists (#5409)
+
+## [3.1.40] - 2026-03-21
+
+### Added
+
+- auto-configure opencode-cursor-oauth plugin in setup (#5408)
+
+### Fixed
+
+- use conventional FIXME tag for disabled auth hook workaround (#5400)
+
+## [3.1.38] - 2026-03-21
+
+### Added
+
+- add Cursor support to oauth-pool-helper.sh and /models-pool-check (#5384)
+
+### Changed
+
+- Documentation: add routing rules and provider-explicit examples to models-pool-check (#5379)
+
+### Fixed
+
+- address remaining CodeRabbit findings from PR #5375 (#5377)
+
+## [3.1.37] - 2026-03-21
+
+### Changed
+
+- Documentation: rewrite /models-pool-check for zero-knowledge UX (#5376)
+
+## [3.1.36] - 2026-03-21
+
+### Added
+
+- shell-based OAuth pool management and stale provider name fix (#5375)
+
+## [3.1.35] - 2026-03-21
+
+### Changed
+
+- Version bump and maintenance updates
+
+
+## [3.1.34] - 2026-03-21
+
+### Added
+
+- /models-pool-check command, fix pool model names, post-auth guidance (#5373)
+
+## [3.1.33] - 2026-03-21
+
+### Added
+
+- add Cursor CLI to setup and tool version checks (#5361)
+
+### Changed
+
+- Maintenance: mark t1549 and t1550 as completed (PRs #5367, #5369 merged)
+- Documentation: add model tier and auto-dispatch default guidance to Planning section (#5368)
+
+### Fixed
+
+- dynamic OAuth User-Agent detection and curl-based token endpoints (#5371)
+- make profile update self-healing when repos.json entry is missing (#5372)
+- remove job name field so check name matches branch protection (GH#5365) (#5366)
+
+## [3.1.32] - 2026-03-21
+
+### Changed
+
+- Maintenance: add #auto-dispatch to t1549 and t1550 for pulse pickup
+- Maintenance: add model tiers to t1549 (opus) and t1550 (sonnet)
+- Maintenance: add Cursor OAuth pool and model routing tasks (t1549, t1550)
+
+### Fixed
+
+- show clean placeholder when profile stats have no local data (#5360)
+
+## [3.1.30] - 2026-03-21
+
+### Changed
+
+- Maintenance: archive completed plans from PLANS.md and add cleanup helper (#5355)
+
+### Fixed
+
+- make profile README init resilient to missing repos and stale entries (#5358)
+- revert plans-cleanup, add maintainer gate, label protection, and PLANS.md auto-sync (#5357)
 
 ## [3.1.28] - 2026-03-20
 

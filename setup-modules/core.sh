@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # Core setup functions: requirements, permissions, location
 # Part of aidevops setup.sh modularization (t316.3)
 
@@ -8,6 +10,138 @@ IFS=$'\n\t'
 # shellcheck disable=SC2154  # rc is assigned by $? in the trap string
 trap 'rc=$?; echo "[ERROR] ${BASH_SOURCE[0]}:${LINENO} exit $rc" >&2' ERR
 shopt -s inherit_errexit 2>/dev/null || true
+
+# Install aidevops inside an OrbStack Linux VM (macOS only, user chose option 2)
+_bootstrap_orbstack_install() {
+	# Install OrbStack if not present
+	if ! command -v orb >/dev/null 2>&1 && [[ ! -d "/Applications/OrbStack.app" ]]; then
+		if command -v brew >/dev/null 2>&1; then
+			print_info "Installing OrbStack via Homebrew..."
+			brew install --cask orbstack
+		else
+			print_error "Homebrew is required to install OrbStack"
+			echo "Install Homebrew first: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+			echo "Then re-run this installer."
+			exit 1
+		fi
+	fi
+
+	# Wait for OrbStack to be ready
+	if ! command -v orb >/dev/null 2>&1; then
+		print_info "Waiting for OrbStack CLI to become available..."
+		# OrbStack installs the CLI at /usr/local/bin/orb
+		local wait_count=0
+		while ! command -v orb >/dev/null 2>&1 && [[ $wait_count -lt 30 ]]; do
+			sleep 2
+			((++wait_count))
+		done
+		if ! command -v orb >/dev/null 2>&1; then
+			print_error "OrbStack CLI not found after installation"
+			echo "Open OrbStack.app manually, then re-run this installer."
+			exit 1
+		fi
+	fi
+
+	# Create or use existing Ubuntu VM
+	local vm_name="aidevops"
+	if orb list 2>/dev/null | grep -qxF "$vm_name"; then
+		print_info "Using existing OrbStack VM: $vm_name"
+	else
+		print_info "Creating Ubuntu VM: $vm_name..."
+		orb create ubuntu "$vm_name"
+	fi
+
+	# Run the installer inside the VM
+	print_info "Installing aidevops inside the VM..."
+	echo ""
+	orb run -m "$vm_name" bash -c 'bash <(curl -fsSL https://aidevops.sh/install)'
+
+	echo ""
+	print_success "aidevops installed in OrbStack VM: $vm_name"
+	echo ""
+	echo "To use aidevops in the VM:"
+	echo "  orb shell $vm_name              # Enter the VM"
+	echo "  orb run -m $vm_name opencode    # Run OpenCode directly"
+	echo ""
+	exit 0
+}
+
+# Auto-install git using the available package manager
+_bootstrap_install_git() {
+	print_warning "git is required but not installed - attempting auto-install..."
+	if [[ "$(uname)" == "Darwin" ]]; then
+		# macOS: xcode-select --install triggers git install
+		print_info "Installing Xcode Command Line Tools (includes git)..."
+		if xcode-select --install 2>/dev/null; then
+			# Wait for installation to complete (timeout after 5 minutes)
+			print_info "Waiting for Xcode CLT installation to complete (timeout: 5m)..."
+			local xcode_wait=0
+			local xcode_max_wait=300
+			until command -v git >/dev/null 2>&1; do
+				sleep 5
+				xcode_wait=$((xcode_wait + 5))
+				if [[ $xcode_wait -ge $xcode_max_wait ]]; then
+					print_error "Timed out waiting for Xcode CLT installation after ${xcode_max_wait}s"
+					echo "Complete the installation manually, then re-run this installer."
+					exit 1
+				fi
+			done
+			print_success "git installed via Xcode Command Line Tools"
+		else
+			# Already installed or failed
+			if ! command -v git >/dev/null 2>&1; then
+				print_error "git installation failed"
+				echo "Install git manually: brew install git (macOS)"
+				exit 1
+			fi
+		fi
+	elif command -v apt-get >/dev/null 2>&1; then
+		print_info "Installing git via apt..."
+		sudo apt-get update -qq && sudo apt-get install -y -qq git
+		if ! command -v git >/dev/null 2>&1; then
+			print_error "git installation failed"
+			exit 1
+		fi
+		print_success "git installed"
+	elif command -v dnf >/dev/null 2>&1; then
+		print_info "Installing git via dnf..."
+		sudo dnf install -y git
+		if ! command -v git >/dev/null 2>&1; then
+			print_error "git installation failed"
+			exit 1
+		fi
+		print_success "git installed"
+	elif command -v yum >/dev/null 2>&1; then
+		print_info "Installing git via yum..."
+		sudo yum install -y git
+		if ! command -v git >/dev/null 2>&1; then
+			print_error "git installation failed"
+			exit 1
+		fi
+		print_success "git installed"
+	elif command -v pacman >/dev/null 2>&1; then
+		print_info "Installing git via pacman..."
+		sudo pacman -S --noconfirm git
+		if ! command -v git >/dev/null 2>&1; then
+			print_error "git installation failed"
+			exit 1
+		fi
+		print_success "git installed"
+	elif command -v apk >/dev/null 2>&1; then
+		print_info "Installing git via apk..."
+		sudo apk add git
+		if ! command -v git >/dev/null 2>&1; then
+			print_error "git installation failed"
+			exit 1
+		fi
+		print_success "git installed"
+	else
+		print_error "git is required but not installed and no supported package manager found"
+		echo "Install git manually and re-run the installer"
+		exit 1
+	fi
+	return 0
+}
 
 bootstrap_repo() {
 	# Detect if running from curl (no script directory context)
@@ -19,146 +153,39 @@ bootstrap_repo() {
 		print_info "Remote install detected - bootstrapping repository..."
 
 		# On macOS, offer choice: install locally or in an OrbStack VM
-		if [[ "$(uname)" == "Darwin" ]]; then
+		# Skip prompt in non-interactive mode (parse_args hasn't run yet,
+		# so check $@ directly for --non-interactive/-n flags)
+		local _bootstrap_non_interactive=false
+		local _arg
+		for _arg in "$@"; do
+			case "$_arg" in
+			--non-interactive | -n) _bootstrap_non_interactive=true ;;
+			esac
+		done
+		[[ "${AIDEVOPS_NON_INTERACTIVE:-false}" == "true" ]] && _bootstrap_non_interactive=true
+		[[ ! -t 0 ]] && _bootstrap_non_interactive=true
+
+		if [[ "$(uname)" == "Darwin" && "$_bootstrap_non_interactive" == "false" ]]; then
 			echo ""
 			echo "Where would you like to install aidevops?"
 			echo ""
 			echo "  1) Install on this Mac (recommended)"
 			echo "  2) Install in a Linux VM (via OrbStack)"
 			echo ""
-			read -r -p "Choose [1/2] (default: 1): " install_target
+			# Cannot use setup_prompt here — _common.sh not yet sourced during bootstrap.
+			# The _bootstrap_non_interactive guard above prevents reaching this line.
+			local install_target=""
+			read -r -p "Choose [1/2] (default: 1): " install_target || install_target="1"
 
 			if [[ "$install_target" == "2" ]]; then
 				print_info "Setting up OrbStack VM installation..."
-
-				# Install OrbStack if not present
-				if ! command -v orb >/dev/null 2>&1 && [[ ! -d "/Applications/OrbStack.app" ]]; then
-					if command -v brew >/dev/null 2>&1; then
-						print_info "Installing OrbStack via Homebrew..."
-						brew install --cask orbstack
-					else
-						print_error "Homebrew is required to install OrbStack"
-						echo "Install Homebrew first: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-						echo "Then re-run this installer."
-						exit 1
-					fi
-				fi
-
-				# Wait for OrbStack to be ready
-				if ! command -v orb >/dev/null 2>&1; then
-					print_info "Waiting for OrbStack CLI to become available..."
-					# OrbStack installs the CLI at /usr/local/bin/orb
-					local wait_count=0
-					while ! command -v orb >/dev/null 2>&1 && [[ $wait_count -lt 30 ]]; do
-						sleep 2
-						((++wait_count))
-					done
-					if ! command -v orb >/dev/null 2>&1; then
-						print_error "OrbStack CLI not found after installation"
-						echo "Open OrbStack.app manually, then re-run this installer."
-						exit 1
-					fi
-				fi
-
-				# Create or use existing Ubuntu VM
-				local vm_name="aidevops"
-				if orb list 2>/dev/null | grep -qxF "$vm_name"; then
-					print_info "Using existing OrbStack VM: $vm_name"
-				else
-					print_info "Creating Ubuntu VM: $vm_name..."
-					orb create ubuntu "$vm_name"
-				fi
-
-				# Run the installer inside the VM
-				print_info "Installing aidevops inside the VM..."
-				echo ""
-				orb run -m "$vm_name" bash -c 'bash <(curl -fsSL https://aidevops.sh/install)'
-
-				echo ""
-				print_success "aidevops installed in OrbStack VM: $vm_name"
-				echo ""
-				echo "To use aidevops in the VM:"
-				echo "  orb shell $vm_name              # Enter the VM"
-				echo "  orb run -m $vm_name opencode    # Run OpenCode directly"
-				echo ""
-				exit 0
+				_bootstrap_orbstack_install
 			fi
 		fi
 
 		# Auto-install git if missing (required for cloning)
 		if ! command -v git >/dev/null 2>&1; then
-			print_warning "git is required but not installed - attempting auto-install..."
-			if [[ "$(uname)" == "Darwin" ]]; then
-				# macOS: xcode-select --install triggers git install
-				print_info "Installing Xcode Command Line Tools (includes git)..."
-				if xcode-select --install 2>/dev/null; then
-					# Wait for installation to complete (timeout after 5 minutes)
-					print_info "Waiting for Xcode CLT installation to complete (timeout: 5m)..."
-					local xcode_wait=0
-					local xcode_max_wait=300
-					until command -v git >/dev/null 2>&1; do
-						sleep 5
-						xcode_wait=$((xcode_wait + 5))
-						if [[ $xcode_wait -ge $xcode_max_wait ]]; then
-							print_error "Timed out waiting for Xcode CLT installation after ${xcode_max_wait}s"
-							echo "Complete the installation manually, then re-run this installer."
-							exit 1
-						fi
-					done
-					print_success "git installed via Xcode Command Line Tools"
-				else
-					# Already installed or failed
-					if ! command -v git >/dev/null 2>&1; then
-						print_error "git installation failed"
-						echo "Install git manually: brew install git (macOS)"
-						exit 1
-					fi
-				fi
-			elif command -v apt-get >/dev/null 2>&1; then
-				print_info "Installing git via apt..."
-				sudo apt-get update -qq && sudo apt-get install -y -qq git
-				if ! command -v git >/dev/null 2>&1; then
-					print_error "git installation failed"
-					exit 1
-				fi
-				print_success "git installed"
-			elif command -v dnf >/dev/null 2>&1; then
-				print_info "Installing git via dnf..."
-				sudo dnf install -y git
-				if ! command -v git >/dev/null 2>&1; then
-					print_error "git installation failed"
-					exit 1
-				fi
-				print_success "git installed"
-			elif command -v yum >/dev/null 2>&1; then
-				print_info "Installing git via yum..."
-				sudo yum install -y git
-				if ! command -v git >/dev/null 2>&1; then
-					print_error "git installation failed"
-					exit 1
-				fi
-				print_success "git installed"
-			elif command -v pacman >/dev/null 2>&1; then
-				print_info "Installing git via pacman..."
-				sudo pacman -S --noconfirm git
-				if ! command -v git >/dev/null 2>&1; then
-					print_error "git installation failed"
-					exit 1
-				fi
-				print_success "git installed"
-			elif command -v apk >/dev/null 2>&1; then
-				print_info "Installing git via apk..."
-				sudo apk add git
-				if ! command -v git >/dev/null 2>&1; then
-					print_error "git installation failed"
-					exit 1
-				fi
-				print_success "git installed"
-			else
-				print_error "git is required but not installed and no supported package manager found"
-				echo "Install git manually and re-run the installer"
-				exit 1
-			fi
+			_bootstrap_install_git
 		fi
 
 		# Create parent directory
@@ -190,6 +217,7 @@ bootstrap_repo() {
 		cd "$INSTALL_DIR" || exit 1
 		exec bash "./setup.sh" "$@"
 	fi
+	return 0
 }
 
 # Detect package manager
@@ -209,6 +237,7 @@ detect_package_manager() {
 	else
 		echo "unknown"
 	fi
+	return 0
 }
 
 # Install packages using detected package manager
@@ -289,7 +318,8 @@ ensure_homebrew() {
 	print_info "Homebrew (Linuxbrew) is not installed."
 	print_info "Several optional tools (Beads CLI, Worktrunk, bv) install via Homebrew taps."
 	echo ""
-	read -r -p "Install Homebrew for Linux? [Y/n]: " install_brew
+	local install_brew="Y"
+	setup_prompt install_brew "Install Homebrew for Linux? [Y/n]: " "Y"
 
 	if [[ ! "$install_brew" =~ ^[Yy]?$ ]]; then
 		print_info "Skipped Homebrew installation"
@@ -346,11 +376,10 @@ ensure_homebrew() {
 	fi
 }
 
-# Check system requirements
-check_requirements() {
-	print_info "Checking system requirements..."
-
-	# Ensure Homebrew is in PATH (macOS Apple Silicon)
+# Fix Homebrew PATH for Apple Silicon and Intel Macs when brew is not in PATH.
+# Modifies rc files only during interactive setup (not updates).
+_check_req_fix_homebrew_path() {
+	# Apple Silicon Homebrew
 	if [[ -x "/opt/homebrew/bin/brew" ]] && [[ ":$PATH:" != *":/opt/homebrew/bin:"* ]]; then
 		eval "$(/opt/homebrew/bin/brew shellenv)"
 		print_warning "Homebrew not in PATH - added for this session"
@@ -423,6 +452,15 @@ check_requirements() {
 			fi
 		fi
 	fi
+	return 0
+}
+
+# Check system requirements
+check_requirements() {
+	print_info "Checking system requirements..."
+
+	# Ensure Homebrew is in PATH (macOS Apple Silicon and Intel)
+	_check_req_fix_homebrew_path
 
 	local missing_deps=()
 	local missing_packages=()
@@ -477,7 +515,8 @@ check_requirements() {
 		fi
 
 		echo ""
-		read -r -p "Install missing dependencies using $pkg_manager? [Y/n]: " install_deps
+		local install_deps="Y"
+		setup_prompt install_deps "Install missing dependencies using $pkg_manager? [Y/n]: " "Y"
 
 		if [[ "$install_deps" =~ ^[Yy]?$ ]]; then
 			print_info "Installing ${missing_packages[*]}..."
@@ -494,48 +533,67 @@ check_requirements() {
 	fi
 
 	print_success "All required dependencies found"
+	return 0
 }
 
-# Check for quality/linting tools (shellcheck, shfmt)
+# Check for quality/linting tools (shellcheck, shfmt, markdownlint)
 # These are optional but recommended for development
-check_quality_tools() {
-	print_info "Checking quality tools..."
+_check_quality_tool() {
+	local tool_name="$1"
+	local version=""
 
-	local missing_tools=()
-
-	# Check for shellcheck
-	if command -v shellcheck >/dev/null 2>&1; then
-		print_success "shellcheck: $(shellcheck --version | head -1)"
+	if command -v "$tool_name" >/dev/null 2>&1; then
+		case "$tool_name" in
+		shellcheck)
+			version=$(shellcheck --version 2>/dev/null | head -1 || true)
+			;;
+		shfmt)
+			version=$(shfmt --version 2>/dev/null)
+			;;
+		esac
+		print_success "$tool_name: ${version:-installed}"
 	else
-		missing_tools+=("shellcheck")
+		missing_tools+=("$tool_name")
 	fi
 
-	# Check for shfmt
-	if command -v shfmt >/dev/null 2>&1; then
-		print_success "shfmt: $(shfmt --version)"
-	else
-		missing_tools+=("shfmt")
-	fi
+	return 0
+}
 
-	# If all tools present, return early
-	if [[ ${#missing_tools[@]} -eq 0 ]]; then
-		print_success "All quality tools installed"
+_check_markdownlint_tool() {
+	local version=""
+
+	if command -v markdownlint >/dev/null 2>&1; then
+		version=$(markdownlint --version 2>/dev/null | head -1 || true)
+		print_success "markdownlint: ${version:-installed}"
 		return 0
 	fi
 
-	# Show missing tools
-	print_warning "Missing quality tools: ${missing_tools[*]}"
+	if command -v markdownlint-cli2 >/dev/null 2>&1; then
+		version=$(markdownlint-cli2 --version 2>/dev/null | head -1 || true)
+		print_success "markdownlint-cli2: ${version:-installed}"
+		return 0
+	fi
+
+	missing_npm_tools+=("markdownlint-cli2")
+	return 0
+}
+
+_report_missing_quality_tools() {
+	if [[ ${#missing_tools[@]} -gt 0 ]]; then
+		print_warning "Missing quality tools: ${missing_tools[*]}"
+	fi
+
+	if [[ ${#missing_npm_tools[@]} -gt 0 ]]; then
+		print_warning "Missing npm quality tools: ${missing_npm_tools[*]}"
+	fi
+
 	print_info "These tools are used by linters-local.sh for code quality checks"
+	return 0
+}
 
-	# In non-interactive mode, just warn and continue
-	if [[ "$NON_INTERACTIVE" == "true" ]]; then
-		print_info "Install later: brew install ${missing_tools[*]}"
-		return 0
-	fi
-
-	# Offer to install
-	local pkg_manager
-	pkg_manager=$(detect_package_manager)
+_install_missing_quality_tools() {
+	local pkg_manager="$1"
+	local install_quality="Y"
 
 	if [[ "$pkg_manager" == "unknown" ]]; then
 		print_info "Install manually:"
@@ -546,7 +604,7 @@ check_quality_tools() {
 	fi
 
 	echo ""
-	read -r -p "Install quality tools using $pkg_manager? [Y/n]: " install_quality
+	setup_prompt install_quality "Install quality tools using $pkg_manager? [Y/n]: " "Y"
 
 	if [[ "$install_quality" =~ ^[Yy]?$ ]]; then
 		print_info "Installing ${missing_tools[*]}..."
@@ -558,6 +616,78 @@ check_quality_tools() {
 	else
 		print_info "Skipped quality tools installation"
 		print_info "Install later: $pkg_manager install ${missing_tools[*]}"
+	fi
+
+	return 0
+}
+
+_install_missing_npm_quality_tools() {
+	local install_npm_quality="Y"
+
+	if ! command -v npm >/dev/null 2>&1; then
+		print_warning "npm not found; cannot auto-install ${missing_npm_tools[*]}"
+		print_info "Install Node.js/npm, then run: npm install -g ${missing_npm_tools[*]}"
+		return 0
+	fi
+
+	echo ""
+	setup_prompt install_npm_quality "Install npm quality tools (npm install -g ${missing_npm_tools[*]})? [Y/n]: " "Y"
+	if [[ "$install_npm_quality" =~ ^[Yy]?$ ]]; then
+		print_info "Installing npm quality tools: ${missing_npm_tools[*]}..."
+		if npm install -g "${missing_npm_tools[@]}" >/dev/null 2>&1; then
+			print_success "npm quality tools installed successfully"
+		else
+			print_warning "Failed to install npm quality tools - continuing anyway"
+		fi
+	else
+		print_info "Skipped npm quality tools installation"
+		print_info "Install later: npm install -g ${missing_npm_tools[*]}"
+	fi
+
+	return 0
+}
+
+check_quality_tools() {
+	print_info "Checking quality tools..."
+
+	local missing_tools=()
+	local missing_npm_tools=()
+
+	_check_quality_tool "shellcheck"
+	_check_quality_tool "shfmt"
+	_check_markdownlint_tool
+
+	if [[ ${#missing_tools[@]} -eq 0 && ${#missing_npm_tools[@]} -eq 0 ]]; then
+		print_success "All quality tools installed"
+		return 0
+	fi
+
+	_report_missing_quality_tools
+
+	if [[ "$NON_INTERACTIVE" == "true" ]]; then
+		if [[ ${#missing_tools[@]} -gt 0 ]]; then
+			print_info "Install later: brew install ${missing_tools[*]}"
+		fi
+		if [[ ${#missing_npm_tools[@]} -gt 0 ]]; then
+			if command -v npm >/dev/null 2>&1; then
+				print_info "Install later: npm install -g ${missing_npm_tools[*]}"
+			else
+				print_info "Install later: install npm, then run npm install -g ${missing_npm_tools[*]}"
+			fi
+		fi
+		return 0
+	fi
+
+	# Offer to install
+	local pkg_manager
+	pkg_manager=$(detect_package_manager)
+
+	if [[ ${#missing_tools[@]} -gt 0 ]]; then
+		_install_missing_quality_tools "$pkg_manager"
+	fi
+
+	if [[ ${#missing_npm_tools[@]} -gt 0 ]]; then
+		_install_missing_npm_quality_tools
 	fi
 
 	return 0

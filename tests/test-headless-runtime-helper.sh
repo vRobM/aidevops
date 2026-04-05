@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 
 set -euo pipefail
 
@@ -45,9 +47,15 @@ export STUB_LOG_FILE="$TEST_TMP_DIR/opencode-args.log"
 # Set a known model list so tests are self-contained and don't depend on
 # the user's environment. Includes two providers for rotation/fallback tests.
 export AIDEVOPS_HEADLESS_MODELS="anthropic/claude-sonnet-4-6,openai/gpt-5.3-codex"
+unset AIDEVOPS_HEADLESS_PROVIDER_ALLOWLIST
 # Disable sandbox for tests — the sandbox strips env vars (STUB_*) needed
 # by the opencode stub, causing test failures.
 export AIDEVOPS_HEADLESS_SANDBOX_DISABLED=1
+# Disable pattern-driven downgrades so selection-order tests stay deterministic.
+unset AIDEVOPS_TIER_DOWNGRADE_TASK_TYPE
+# Provide a fake Anthropic API key so Anthropic remains selectable even when
+# the local environment has no OpenCode auth session.
+export ANTHROPIC_API_KEY="test-key-for-provider-auth-check"
 # Provide a fake OpenAI API key so provider_auth_available("openai") returns true
 # in tests that exercise OpenAI model selection. Tests for the no-auth path
 # explicitly unset this and remove the auth file.
@@ -355,6 +363,158 @@ if [[ "$explicit_gateway" == "opencode/minimax-m2.5-free" ]]; then
 	pass "explicit --model opencode/* is accepted"
 else
 	fail "explicit --model opencode/* is accepted" "got: $explicit_gateway"
+fi
+
+section "Session-Key Dedup Guard (GH#6538)"
+# Test 1: A second run with the same session-key while the first is "running"
+# should be blocked. Simulate by writing a lock file with our own PID (which
+# is alive), then attempting a run with the same session-key.
+LOCK_DIR="$TEST_TMP_DIR/runtime/locks"
+mkdir -p "$LOCK_DIR"
+echo "$$" >"$LOCK_DIR/issue-dedup-test.pid"
+rm -f "$STUB_LOG_FILE"
+AIDEVOPS_HEADLESS_PROVIDER_ALLOWLIST=anthropic bash "$HELPER" run \
+	--role worker \
+	--session-key "issue-dedup-test" \
+	--dir "$REPO_DIR" \
+	--title "Issue #999: Dedup test" \
+	--prompt "Reply with exactly OK" >/dev/null 2>&1 || true
+if [[ -f "$STUB_LOG_FILE" ]]; then
+	fail "dedup guard blocks second dispatch with same session-key" "stub was invoked (opencode ran)"
+else
+	pass "dedup guard blocks second dispatch with same session-key"
+fi
+rm -f "$LOCK_DIR/issue-dedup-test.pid"
+
+# Test 2: A stale lock (dead PID) should be cleaned up and the run should proceed.
+echo "99999999" >"$LOCK_DIR/issue-stale-test.pid"
+rm -f "$STUB_LOG_FILE"
+export STUB_SESSION_ID="ses_stale_lock"
+AIDEVOPS_HEADLESS_PROVIDER_ALLOWLIST=anthropic bash "$HELPER" run \
+	--role worker \
+	--session-key "issue-stale-test" \
+	--dir "$REPO_DIR" \
+	--title "Issue #998: Stale lock test" \
+	--prompt "Reply with exactly OK" >/dev/null 2>&1
+if [[ -f "$STUB_LOG_FILE" ]] && grep -q 'Reply with exactly OK' "$STUB_LOG_FILE"; then
+	pass "stale lock (dead PID) is cleaned up and run proceeds"
+else
+	fail "stale lock (dead PID) is cleaned up and run proceeds" "stub log: $(cat "$STUB_LOG_FILE" 2>/dev/null || echo 'missing')"
+fi
+
+# Test 3: Lock file should be cleaned up after a successful run.
+if [[ -f "$LOCK_DIR/issue-stale-test.pid" ]]; then
+	fail "lock file cleaned up after successful run" "lock file still exists"
+else
+	pass "lock file cleaned up after successful run"
+fi
+
+# Test 4: Different session-keys should not block each other.
+echo "$$" >"$LOCK_DIR/issue-other.pid"
+rm -f "$STUB_LOG_FILE"
+export STUB_SESSION_ID="ses_different_key"
+AIDEVOPS_HEADLESS_PROVIDER_ALLOWLIST=anthropic bash "$HELPER" run \
+	--role worker \
+	--session-key "issue-different" \
+	--dir "$REPO_DIR" \
+	--title "Issue #997: Different key" \
+	--prompt "Reply with exactly OK" >/dev/null 2>&1
+if [[ -f "$STUB_LOG_FILE" ]] && grep -q 'Reply with exactly OK' "$STUB_LOG_FILE"; then
+	pass "different session-keys do not block each other"
+else
+	fail "different session-keys do not block each other" "stub log: $(cat "$STUB_LOG_FILE" 2>/dev/null || echo 'missing')"
+fi
+rm -f "$LOCK_DIR/issue-other.pid"
+
+section "OPENCODE_PID Passthrough Exclusion (GH#6668)"
+# OPENCODE_PID must never appear in the sandbox passthrough CSV — workers that
+# inherit it attach to the pulse's session instead of creating independent ones.
+passthrough_csv=$(OPENCODE_PID="12345" bash "$HELPER" passthrough-csv 2>/dev/null || true)
+if [[ -z "$passthrough_csv" ]] || [[ "$passthrough_csv" != *"OPENCODE_PID"* ]]; then
+	pass "OPENCODE_PID excluded from sandbox passthrough CSV"
+else
+	fail "OPENCODE_PID excluded from sandbox passthrough CSV" "got: $passthrough_csv"
+fi
+# Other OPENCODE_* vars must still be passed through.
+passthrough_csv2=$(OPENCODE_THEME="dark" bash "$HELPER" passthrough-csv 2>/dev/null || true)
+if [[ "$passthrough_csv2" == *"OPENCODE_THEME"* ]]; then
+	pass "other OPENCODE_* vars still included in passthrough CSV"
+else
+	fail "other OPENCODE_* vars still included in passthrough CSV" "got: $passthrough_csv2"
+fi
+
+section "Sandbox Source Guard (GH#6617)"
+# Regression test: sourcing sandbox-exec-helper.sh must NOT call main() and
+# must NOT produce any output. The secondary watchdog (_sandbox_spawn_watchdog_bg)
+# sources the sandbox script to load helper functions. Before the source guard
+# was added (GH#6550), sourcing the script called main() with the watchdog's
+# positional args, which fell through to the *) case → sandbox_help() → help
+# text printed to stdout → contaminating the opencode output file → workers
+# never launched (GH#6617).
+SANDBOX_HELPER="$REPO_DIR/.agents/scripts/sandbox-exec-helper.sh"
+source_output=$(bash -c "source '$SANDBOX_HELPER' 2>/dev/null; echo 'source_ok'" 2>/dev/null || true)
+if [[ "$source_output" == "source_ok" ]]; then
+	pass "sourcing sandbox-exec-helper.sh produces no output (source guard active)"
+else
+	fail "sourcing sandbox-exec-helper.sh produces no output (source guard active)" \
+		"got: $(printf '%s' "$source_output" | head -3)"
+fi
+
+# Verify that sourcing does NOT print help text (the specific symptom of GH#6617).
+source_help_check=$(bash -c "source '$SANDBOX_HELPER' 2>/dev/null; echo done" 2>/dev/null || true)
+if printf '%s' "$source_help_check" | grep -q "Commands:"; then
+	fail "sourcing sandbox-exec-helper.sh does not print help text (GH#6617 regression)" \
+		"help text found in source output"
+else
+	pass "sourcing sandbox-exec-helper.sh does not print help text (GH#6617 regression)"
+fi
+
+# Verify that sourcing with watchdog-style args (numeric timeout) does NOT call main().
+# This simulates what _sandbox_spawn_watchdog_bg does: source the script then call
+# _sandbox_spawn_watchdog. The numeric arg (3600) would previously trigger the *)
+# case in main() → help output.
+source_with_args=$(bash -c "source '$SANDBOX_HELPER' 3600 12345 12345 '' '/tmp/marker' 2>/dev/null; echo done" 2>/dev/null || true)
+if printf '%s' "$source_with_args" | grep -q "Commands:"; then
+	fail "sourcing sandbox-exec-helper.sh with watchdog args does not print help text (GH#6617)" \
+		"help text found when sourced with numeric args"
+else
+	pass "sourcing sandbox-exec-helper.sh with watchdog args does not print help text (GH#6617)"
+fi
+
+section "JSONC Config Overrides"
+CONFIG_USER_FILE="$TEST_TMP_DIR/headless-config.jsonc"
+cat >"$CONFIG_USER_FILE" <<'JSONC'
+{
+  "orchestration": {
+    "headless_models": "openai/gpt-5.4"
+  }
+}
+JSONC
+config_selected=$(
+	AIDEVOPS_HEADLESS_MODELS="" \
+		JSONC_DEFAULTS="$REPO_DIR/.agents/configs/aidevops.defaults.jsonc" \
+		JSONC_USER="$CONFIG_USER_FILE" \
+		OPENAI_API_KEY="test-key-for-provider-auth-check" \
+		bash "$HELPER" select --role worker 2>/dev/null || true
+)
+if [[ "$config_selected" == "openai/gpt-5.4" ]]; then
+	pass "JSONC orchestration.headless_models overrides default selection"
+else
+	fail "JSONC orchestration.headless_models overrides default selection" "got: $config_selected"
+fi
+
+section "Metrics Review Signals"
+METRICS_PATH="$HOME/.aidevops/logs"
+mkdir -p "$METRICS_PATH"
+cat >"$METRICS_PATH/headless-runtime-metrics.jsonl" <<'JSONL'
+{"ts":4102444800,"role":"worker","model":"openai/gpt-5.4","result":"success","activity":true,"duration_ms":45000,"exit_code":0}
+{"ts":4102444800,"role":"worker","model":"anthropic/claude-sonnet-4-6","result":"success","activity":true,"duration_ms":240000,"exit_code":0}
+JSONL
+metrics_output=$(bash "$HELPER" metrics --role worker --hours 24 2>/dev/null || true)
+if [[ "$metrics_output" == *"fast_productive=1 (<=120s)"* && "$metrics_output" == *"Review candidates:"* && "$metrics_output" == *"openai/gpt-5.4"* ]]; then
+	pass "metrics flags fast successful expensive-model runs for review"
+else
+	fail "metrics flags fast successful expensive-model runs for review" "got: $metrics_output"
 fi
 
 echo ""

@@ -4,50 +4,36 @@ agent: Build+
 mode: subagent
 ---
 
-Optimize content for SEO performance.
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
 
-Target: $ARGUMENTS
+Target: $ARGUMENTS (file path + optional keyword)
 
 ## Workflow
 
-1. **Identify target**: Parse $ARGUMENTS for file path and optional keyword
-
-2. **Run analysis**:
-
-   ```bash
-   python3 ~/.aidevops/agents/scripts/seo-content-analyzer.py analyze "$FILE" \
-     --keyword "$KEYWORD" --secondary "$SECONDARY"
-   ```
-
-3. **Review results**: Check each category:
-   - Readability score and grade
-   - Keyword density and placement
-   - SEO quality score (target 80+)
-   - Critical issues (must fix)
-   - Warnings (should fix)
-   - Suggestions (nice to have)
-
-4. **Apply fixes** in priority order:
+1. **Analyze** — run `analyze` command (see Commands below). Target score: 80+.
+2. **Review results** — SEO quality score, readability grade, keyword density, critical issues, warnings, suggestions.
+3. **Apply fixes** in priority order:
    - Critical: Missing H1 keyword, no meta elements, content too short
    - High: Low keyword density, missing internal links
    - Medium: Reading level, paragraph length
    - Low: External links, transition words
+4. **Re-analyze and report** — verify improvements, summarize changes and final scores.
 
-5. **Re-analyze**: Run analysis again to verify improvements
-
-6. **Generate report**: Summarize changes made and final scores
-
-## Quick Commands
+## Commands
 
 ```bash
-# SEO quality check
+# Full analysis
+python3 ~/.aidevops/agents/scripts/seo-content-analyzer.py analyze "$FILE" --keyword "$KW"
+
+# Quality check
 python3 ~/.aidevops/agents/scripts/seo-content-analyzer.py quality article.md \
   --keyword "keyword" --meta-title "Title" --meta-desc "Description"
 
-# Readability check
+# Readability
 python3 ~/.aidevops/agents/scripts/seo-content-analyzer.py readability article.md
 
-# Keyword analysis
+# Keyword density
 python3 ~/.aidevops/agents/scripts/seo-content-analyzer.py keywords article.md \
   --keyword "keyword" --secondary "kw1,kw2"
 ```

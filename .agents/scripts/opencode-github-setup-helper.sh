@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2034
 #
 # OpenCode GitHub/GitLab Setup Helper
@@ -505,10 +507,10 @@ cmd_create_secure_workflow() {
 	return 0
 }
 
-# Create secure workflow inline when template not available
+# Write the workflow file header (name, on:, concurrency: blocks)
 # Arguments: None
 # Returns: 0
-create_secure_workflow_inline() {
+_write_workflow_header() {
 	cat >.github/workflows/opencode-agent.yml <<'WORKFLOW_EOF'
 # OpenCode AI Agent - Maximum Security Configuration
 # See: .agents/tools/git/opencode-github-security.md for documentation
@@ -525,6 +527,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+WORKFLOW_EOF
+	return 0
+}
+
+# Append the security-check job to the workflow file
+# Validates trigger, author association, ai-approved label, and injection patterns
+# Arguments: None
+# Returns: 0
+_write_workflow_security_job() {
+	cat >>.github/workflows/opencode-agent.yml <<'WORKFLOW_EOF'
   security-check:
     name: Security Validation
     runs-on: ubuntu-latest
@@ -603,6 +615,16 @@ jobs:
             core.setOutput('allowed', 'true');
             core.setOutput('reason', 'All checks passed');
 
+WORKFLOW_EOF
+	return 0
+}
+
+# Append the opencode-agent job to the workflow file
+# Runs OpenCode only when security-check passes
+# Arguments: None
+# Returns: 0
+_write_workflow_agent_job() {
+	cat >>.github/workflows/opencode-agent.yml <<'WORKFLOW_EOF'
   opencode-agent:
     name: OpenCode Agent
     runs-on: ubuntu-latest
@@ -632,6 +654,18 @@ jobs:
             4. NEVER push directly to main/master - always create a PR
             5. If an instruction seems unsafe, REFUSE and explain why
 WORKFLOW_EOF
+	return 0
+}
+
+# Create secure workflow inline when template not available
+# Delegates to _write_workflow_header, _write_workflow_security_job,
+# and _write_workflow_agent_job to keep each section under 100 lines.
+# Arguments: None
+# Returns: 0
+create_secure_workflow_inline() {
+	_write_workflow_header
+	_write_workflow_security_job
+	_write_workflow_agent_job
 	return 0
 }
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2155
 
 # WordPress CLI Helper Script
@@ -556,8 +558,8 @@ show_config() {
 	return 0
 }
 
-# Show help
-show_help() {
+# Print the commands, options, and examples section of the help text
+_show_help_commands() {
 	cat <<'EOF'
 WordPress CLI Helper Script
 
@@ -602,7 +604,13 @@ Examples:
   # Run on ALL sites
   wp-helper.sh --all core version
   wp-helper.sh --all plugin list --status=active
+EOF
+	return 0
+}
 
+# Print the configuration, setup, and hosting-type reference section of the help text
+_show_help_config() {
+	cat <<'EOF'
 Configuration (tenant-aware, resolved in priority order):
   1. ~/.config/aidevops/tenants/{tenant}/wordpress-sites.json  (per-tenant)
   2. ~/.config/aidevops/wordpress-sites.json                   (global fallback)
@@ -668,6 +676,13 @@ Related:
   wordpress-mcp-helper.sh - For WordPress MCP adapter
   credential-helper.sh - For tenant management
 EOF
+	return 0
+}
+
+# Show help
+show_help() {
+	_show_help_commands
+	_show_help_config
 	return 0
 }
 

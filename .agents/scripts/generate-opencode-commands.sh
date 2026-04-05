@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
+# =============================================================================
+# DEPRECATED: Use generate-runtime-config.sh instead (t1665.4)
+# This script is kept for one release cycle as a fallback.
+# setup-modules/config.sh will use generate-runtime-config.sh when available.
 # =============================================================================
 # Generate OpenCode Commands from Agent Files
 # =============================================================================
@@ -1347,6 +1353,10 @@ if [[ -d "$COMMANDS_DIR" ]]; then
 			((++command_count))
 			echo -e "  ${GREEN}✓${NC} Auto-discovered /$cmd_name command"
 		else
+			if [[ ! -f "$cmd_file" ]]; then
+				echo -e "  ${YELLOW}!${NC} Skipped /$cmd_name command (source missing: $cmd_file)" >&2
+				continue
+			fi
 			echo -e "  ${RED}✗${NC} Failed to copy /$cmd_name command" >&2
 			exit 1
 		fi

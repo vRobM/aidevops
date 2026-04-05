@@ -12,6 +12,9 @@ tools:
   task: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Voice AI Models
 
 <!-- AI-CONTEXT-START -->
@@ -28,238 +31,34 @@ tools:
 
 <!-- AI-CONTEXT-END -->
 
-## Text-to-Speech (TTS) Models
+## Chapter Index
 
-### Implemented in This Repo
+| Chapter | Content |
+|---------|---------|
+| **This file** | Voice bridge engines (EdgeTTS, macOS Say, FacebookMMS), STT summary, selection guides |
+| `tools/voice/qwen3-tts.md` | Qwen3-TTS — quality + multilingual, voice cloning, voice design |
+| `tools/voice/local-tts-models.md` | Kokoro, Dia, F5-TTS, Bark, Coqui, Piper |
+| `tools/voice/cloud-tts-apis.md` | ElevenLabs, MiniMax, OpenAI, Google Cloud, HF Inference |
+| `tools/voice/voice-ai-models.md` | High-level TTS/STT/S2S comparison tables and decision flow |
+| `tools/voice/transcription.md` | STT models, cloud APIs, transcription pipeline |
+
+## Text-to-Speech (TTS) — Voice Bridge Engines
 
 The voice bridge (`voice-bridge.py`) implements three TTS engines:
 
-#### EdgeTTS (Default)
-
-Microsoft Edge TTS via `edge-tts` package. See `voice-bridge.py:133-179`.
-
-- Free, no API key needed
-- 300+ voices across 70+ languages
-- Streaming support, adjustable rate
-- Default voice: `en-GB-SoniaNeural`
+| Engine | Notes | Code ref |
+|--------|-------|----------|
+| **EdgeTTS** (default) | Free, 300+ voices/70+ langs, streaming, default `en-GB-SoniaNeural` | `voice-bridge.py:133-179` |
+| **macOS Say** | Built-in, zero deps, default `Samantha`, macOS only | `voice-bridge.py:182-205` |
+| **FacebookMMS** | 1,100+ languages, requires `transformers`, CPU-friendly | `voice-bridge.py:208-238` |
 
 ```bash
-# Use via voice bridge
-voice-helper.sh talk
+voice-helper.sh talk  # Use via voice bridge
 ```
 
-#### macOS Say
+## Speech-to-Text (STT) Summary
 
-Native macOS speech synthesis. See `voice-bridge.py:182-205`.
-
-- Built-in, zero dependencies
-- Default voice: `Samantha`
-- macOS only
-
-#### FacebookMMS TTS
-
-Meta's Massively Multilingual Speech. See `voice-bridge.py:208-238`.
-
-- 1,100+ languages
-- Requires `transformers` package
-- CPU-friendly
-
-### Local Open-Weight Models
-
-Models available for local inference. Not integrated into the voice bridge but usable standalone.
-
-#### Qwen3-TTS (Recommended for Quality + Multilingual)
-
-Alibaba's open-weight TTS series. 7.1k stars, Apache-2.0.
-
-- **Sizes**: 0.6B and 1.7B parameters
-- **Languages**: Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian
-- **Features**: Voice cloning (3-second reference), voice design (natural language description), custom voices (9 built-in speakers), instruction-controlled emotion/prosody, streaming generation (97ms first-packet latency)
-- **Architecture**: Discrete multi-codebook LM with Qwen3-TTS-Tokenizer-12Hz, dual-track hybrid streaming
-- **Models**: CustomVoice (built-in speakers + instruction control), VoiceDesign (create voices from text descriptions), Base (voice cloning + fine-tuning)
-- **Requires**: CUDA GPU, Python 3.12, PyTorch 2.4+, FlashAttention 2 recommended
-- **Install**: `pip install qwen-tts`
-- **vLLM**: Day-0 support via vLLM-Omni for production deployment
-
-```python
-from qwen_tts import Qwen3TTSModel
-import torch, soundfile as sf
-
-model = Qwen3TTSModel.from_pretrained(
-    "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-    device_map="cuda:0", dtype=torch.bfloat16,
-)
-wavs, sr = model.generate_custom_voice(
-    text="Hello, this is a test.", language="English", speaker="Ryan",
-)
-sf.write("output.wav", wavs[0], sr)
-```
-
-Docs: https://github.com/QwenLM/Qwen3-TTS
-
-#### Kokoro (Recommended for Lightweight + Fast)
-
-82M parameter open-weight TTS. 5.6k stars, Apache-2.0.
-
-- **Size**: 82M parameters (extremely lightweight)
-- **Languages**: American English, British English, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese, Mandarin Chinese
-- **Features**: Comparable quality to larger models, very fast inference, multiple voice presets, MPS acceleration on Apple Silicon
-- **Architecture**: StyleTTS 2 based with misaki G2P
-- **Requires**: `espeak-ng`, Python 3.9+
-- **Install**: `pip install kokoro`
-
-```python
-from kokoro import KPipeline
-
-pipeline = KPipeline(lang_code='a')  # 'a' = American English
-generator = pipeline("Hello world!", voice='af_heart')
-for i, (gs, ps, audio) in enumerate(generator):
-    import soundfile as sf
-    sf.write(f'{i}.wav', audio, 24000)
-```
-
-Docs: https://github.com/hexgrad/kokoro
-
-#### Dia (Recommended for Dialogue)
-
-1.6B parameter dialogue TTS by Nari Labs. 19.1k stars, Apache-2.0.
-
-- **Size**: 1.6B parameters (~4.4GB VRAM in bf16)
-- **Languages**: English only
-- **Features**: Multi-speaker dialogue in one pass (`[S1]`/`[S2]` tags), non-verbal sounds (laughs, coughs, sighs), voice cloning via audio prompt, emotion/tone conditioning
-- **Architecture**: Based on SoundStorm + Descript Audio Codec
-- **Requires**: CUDA GPU, PyTorch 2.0+
-- **Install**: `pip install git+https://github.com/nari-labs/dia.git`
-- **Dia2**: Newer version available at https://github.com/nari-labs/dia2
-- **HF Transformers**: Supported via `DiaForConditionalGeneration`
-
-```python
-from dia.model import Dia
-
-model = Dia.from_pretrained("nari-labs/Dia-1.6B-0626")
-output = model.generate(
-    "[S1] Hey, how are you doing? [S2] I'm great, thanks for asking! (laughs)"
-)
-```
-
-Docs: https://github.com/nari-labs/dia
-
-#### F5-TTS (Recommended for Voice Cloning)
-
-Flow-matching TTS with zero-shot voice cloning. 14.1k stars, MIT (code), CC-BY-NC (weights).
-
-- **Languages**: Chinese, English (base model), extensible via fine-tuning
-- **Features**: Zero-shot voice cloning from short reference audio, sway sampling for quality, multi-speaker generation, Gradio UI, CLI, Docker, TensorRT-LLM runtime
-- **Architecture**: Diffusion Transformer with ConvNeXt V2, flow matching
-- **Requires**: CUDA/ROCm/XPU/MPS, Python 3.10+
-- **Install**: `pip install f5-tts`
-
-```bash
-f5-tts_infer-cli \
-  --model F5TTS_v1_Base \
-  --ref_audio "reference.wav" \
-  --ref_text "Transcript of reference audio." \
-  --gen_text "Text to generate in the cloned voice."
-```
-
-Docs: https://github.com/SWivid/F5-TTS
-
-#### Bark (Suno)
-
-Transformer-based TTS with non-speech generation. 39k+ stars, MIT. **Note**: No active development since 2023.
-
-- **Languages**: English, Chinese, French, German, Hindi, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish, Turkish
-- **Features**: Non-speech sounds (music, laughter, background noise), speaker presets, multilingual
-- **Requires**: GPU recommended, CPU possible but slow
-- **Install**: `pip install git+https://github.com/suno-ai/bark.git`
-
-Docs: https://github.com/suno-ai/bark
-
-#### Coqui TTS
-
-Multi-model TTS toolkit with voice cloning. 44k+ stars, MPL-2.0. **Note**: Coqui company shut down late 2023; repo is community-maintained.
-
-- **Features**: 20+ TTS models (Tacotron2, VITS, YourTTS, Bark, etc.), voice cloning, multi-speaker, training support
-- **Install**: `pip install TTS`
-
-Docs: https://github.com/coqui-ai/TTS
-
-#### Piper TTS (Archived)
-
-Fast local neural TTS. 10.5k stars, MIT. **Archived Oct 2025** — development moved to https://github.com/OHF-Voice/piper1-gpl (GPL license).
-
-- **Features**: Lightweight C++ binary, 100+ voices, CPU-friendly, VITS-based
-- **Best for**: Embedded/IoT, Home Assistant, offline-only environments
-
-Docs: https://github.com/rhasspy/piper (archived), https://github.com/OHF-Voice/piper1-gpl (active)
-
-### Cloud TTS APIs
-
-Require API keys. Store via `aidevops secret set <KEY_NAME>`.
-
-| Provider | Quality | Voices | Voice Clone | Streaming | Docs |
-|----------|---------|--------|-------------|-----------|------|
-| **ElevenLabs** | Highest | 1000+ | Yes (instant) | Yes | https://elevenlabs.io/docs/api-reference/text-to-speech |
-| **MiniMax (Hailuo)** | High | Multiple | Yes (10s clip) | Yes | https://www.minimax.io/ |
-| **OpenAI TTS** | High | 6 built-in | No | Yes | https://platform.openai.com/docs/api-reference/audio/createSpeech |
-| **Google Cloud TTS** | High | 400+ | No | Yes | https://cloud.google.com/text-to-speech/docs |
-| **HF Inference** | Varies | Model-dependent | Model-dependent | Some | https://huggingface.co/docs/api-inference/tasks/text-to-speech |
-
-#### ElevenLabs (Highest Quality Cloud)
-
-```bash
-curl -X POST "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM" \
-  -H "xi-api-key: ${ELEVENLABS_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Hello world", "model_id": "eleven_multilingual_v2"}'
-```
-
-#### MiniMax / Hailuo (Best Value for Talking-Head Content)
-
-MiniMax offers the best quality-to-cost ratio for talking-head video voiceovers. Default output is already natural-sounding with minimal configuration.
-
-- **Cost**: $5/month for 120 minutes of generation
-- **Voice clone**: Works well with just a 10-second reference clip
-- **Default quality**: High out of the box — less tuning needed than ElevenLabs
-- **Access**: Via Higgsfield platform (web UI) or direct MiniMax API
-- **Best for**: Talking-head videos, AI influencer content, organic social
-
-```bash
-# Via MiniMax API
-curl -X POST "https://api.minimax.chat/v1/t2a_v2" \
-  -H "Authorization: Bearer ${MINIMAX_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "speech-02-hd",
-    "text": "Hello world",
-    "voice_setting": {"voice_id": "your-cloned-voice-id"}
-  }'
-```
-
-**Voice cloning workflow**:
-
-1. Record or source a 10-30 second clean audio clip (single speaker, no background noise)
-2. Upload via MiniMax voice clone API or Higgsfield web UI
-3. Use the cloned voice ID in subsequent TTS requests
-
-**When to choose MiniMax over ElevenLabs**: When you need good-enough quality at lower cost and simpler setup. ElevenLabs remains higher quality for premium content, but MiniMax closes the gap for most talking-head use cases.
-
-#### OpenAI TTS
-
-```bash
-curl https://api.openai.com/v1/audio/speech \
-  -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "tts-1-hd", "input": "Hello world", "voice": "alloy"}'
-```
-
-Models: `tts-1` (fast, lower quality), `tts-1-hd` (higher quality). Voices: alloy, echo, fable, onyx, nova, shimmer.
-
-## Speech-to-Text (STT) Models
-
-For comprehensive STT coverage including model comparisons, cloud APIs, and the transcription pipeline, see `tools/voice/transcription.md`.
-
-### Summary of STT Options
+Full STT coverage (model comparisons, cloud APIs, transcription pipeline): `tools/voice/transcription.md`.
 
 | Category | Recommended | Notes |
 |----------|-------------|-------|
@@ -272,9 +71,7 @@ For comprehensive STT coverage including model comparisons, cloud APIs, and the 
 | **macOS native** | Apple Speech (macOS 26+) | On-device, multilingual |
 | **GUI app** | Buzz | Offline, Whisper-based — see `tools/voice/buzz.md` |
 
-### Local STT Implementations
-
-The voice bridge (`voice-bridge.py:99-115`) implements `FasterWhisperSTT`. The speech-to-speech pipeline (`speech-to-speech.md`) supports 7 STT backends: Whisper, Faster Whisper, Lightning Whisper MLX, MLX Audio Whisper, Paraformer, Parakeet TDT, and Moonshine.
+Voice bridge (`voice-bridge.py:99-115`) implements `FasterWhisperSTT`. Speech-to-speech pipeline (`speech-to-speech.md`) supports 7 backends: Whisper, Faster Whisper, Lightning Whisper MLX, MLX Audio Whisper, Paraformer, Parakeet TDT, Moonshine.
 
 ## Model Selection Guide
 
@@ -311,33 +108,32 @@ The voice bridge (`voice-bridge.py:99-115`) implements `FasterWhisperSTT`. The s
 ## Installation Quick Reference
 
 ```bash
-# Implemented (voice bridge)
-pip install edge-tts                    # EdgeTTS
-pip install transformers                # FacebookMMS
+# Voice bridge engines
+pip install edge-tts transformers
 
-# Local TTS models
-pip install qwen-tts                    # Qwen3-TTS (CUDA required)
-pip install kokoro                      # Kokoro 82M
-pip install f5-tts                      # F5-TTS
-pip install git+https://github.com/nari-labs/dia.git  # Dia
-pip install TTS                         # Coqui TTS
-pip install git+https://github.com/suno-ai/bark.git   # Bark
+# Local TTS models (see chapter files for details)
+pip install qwen-tts kokoro f5-tts TTS
+pip install git+https://github.com/nari-labs/dia.git
+pip install git+https://github.com/suno-ai/bark.git
 
-# Local STT models
-pip install faster-whisper              # Faster Whisper (recommended)
+# Local STT
+pip install faster-whisper
 # whisper.cpp: build from source (see transcription.md)
 
-# System dependencies
-brew install espeak-ng                  # Required by Kokoro (macOS)
-apt install espeak-ng                   # Required by Kokoro (Linux)
-brew install ffmpeg yt-dlp              # Required for transcription pipeline
+# System dependencies (macOS)
+brew install espeak-ng ffmpeg yt-dlp
+# Linux: apt install espeak-ng ffmpeg
 ```
 
 ## Related
 
+- `tools/voice/qwen3-tts.md` - Qwen3-TTS (quality + multilingual, voice cloning)
+- `tools/voice/local-tts-models.md` - Local open-weight TTS models (Kokoro, Dia, F5-TTS, Bark, Coqui, Piper)
+- `tools/voice/cloud-tts-apis.md` - Cloud TTS API reference (ElevenLabs, MiniMax, OpenAI)
+- `tools/voice/voice-ai-models.md` - High-level TTS/STT/S2S comparison and decision flow
 - `tools/voice/speech-to-speech.md` - Full voice pipeline (VAD+STT+LLM+TTS)
 - `tools/voice/transcription.md` - STT/transcription models and cloud APIs
 - `tools/voice/buzz.md` - Buzz offline transcription GUI
-- `tools/video/heygen-skill/rules/voices.md` - AI voice cloning for video
+- `content/heygen-skill/rules-voices.md` - AI voice cloning for video
 - `voice-helper.sh` - CLI for voice operations
 - `voice-bridge.py` - Python voice bridge implementation

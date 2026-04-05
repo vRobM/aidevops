@@ -1,5 +1,5 @@
 ---
-description: Comprehensive API integration guide
+description: API service catalog — auth, config, and helper script reference for 28+ integrations
 mode: subagent
 tools:
   read: true
@@ -11,325 +11,102 @@ tools:
   webfetch: true
 ---
 
-# Comprehensive API Integration Guide
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
+# API Integration Guide
 
 <!-- AI-CONTEXT-START -->
 
-## Quick Reference
+**Pattern**: `configs/[service]-config.json` + `scripts/[service]-helper.sh`
 
-**Total APIs**: 28+ integrated services
+```bash
+setup-local-api-keys.sh set [service]-api-key YOUR_KEY
+setup-local-api-keys.sh list
+test-all-apis.sh
+```
 
-**By Category**:
-- **Hosting**: Hostinger, Hetzner, Closte, Coolify
-- **DNS/Domains**: Cloudflare, Spaceship, 101domains, Route53, Namecheap
-- **Git**: GitHub, GitLab, Gitea
-- **Code Quality**: CodeRabbit, Codacy, SonarCloud, CodeFactor
-- **SEO**: Ahrefs, Google Search Console, Perplexity
-- **Security**: Vaultwarden
-- **Email**: Amazon SES
-- **Dev Tools**: Context7, LocalWP, Pandoc, Agno, Playwright/Selenium
-
-**Pattern**: `configs/[service]-config.json` + `.agents/scripts/[service]-helper.sh`
-
-**API Key Setup**: `bash .agents/scripts/setup-local-api-keys.sh set [service]-api-key YOUR_KEY`
-**Test All APIs**: `bash .agents/scripts/test-all-apis.sh`
 <!-- AI-CONTEXT-END -->
 
-This document provides detailed information about all 28+ API integrations supported by the AI DevOps framework.
-
-## 📊 **API Integration Overview**
-
-Our framework provides standardized access to APIs across all major infrastructure categories, enabling seamless automation and management through consistent interfaces.
-
-## 🏗️ **Infrastructure & Hosting APIs**
-
-### **Hostinger API**
-
-- **Purpose**: Server management, domain operations, hosting control
-- **Authentication**: API Token
-- **Configuration**: `configs/hostinger-config.json`
-- **Helper Script**: `.agents/scripts/hostinger-helper.sh`
-- **Key Features**: VPS management, domain registration, hosting plans
-
-### **Hetzner Cloud API**
-
-- **Purpose**: VPS management, networking, load balancers
-- **Authentication**: API Token
-- **Configuration**: `configs/hetzner-config.json`
-- **Helper Script**: `.agents/scripts/hetzner-helper.sh`
-- **Key Features**: Server creation, networking, snapshots, load balancers
-
-### **Closte API**
-
-- **Purpose**: Managed hosting, application deployment
-- **Authentication**: API Key
-- **Configuration**: `configs/closte-config.json`
-- **Helper Script**: `.agents/scripts/closte-helper.sh`
-- **Key Features**: Application management, deployment automation
-
-### **Coolify API**
-
-- **Purpose**: Self-hosted PaaS, application management
-- **Authentication**: API Token
-- **Configuration**: `configs/coolify-config.json`
-- **Helper Script**: `.agents/scripts/coolify-helper.sh`
-- **Key Features**: Docker deployment, service management, monitoring
-
-## 🌐 **Domain & DNS APIs**
-
-### **Cloudflare API**
-
-- **Purpose**: DNS management, security, performance optimization
-- **Authentication**: API Token (scoped permissions)
-- **Configuration**: `configs/cloudflare-dns-config.json`
-- **Helper Script**: `.agents/scripts/dns-helper.sh`
-- **Key Features**: DNS records, security rules, analytics, caching
-
-### **Spaceship API**
-
-- **Purpose**: Domain registration, management, transfers
-- **Authentication**: API Key
-- **Configuration**: `configs/spaceship-config.json`
-- **Helper Script**: `.agents/scripts/spaceship-helper.sh`
-- **Key Features**: Domain search, registration, WHOIS, transfers
-
-### **101domains API**
-
-- **Purpose**: Domain purchasing, bulk operations, WHOIS
-- **Authentication**: API Credentials
-- **Configuration**: `configs/101domains-config.json`
-- **Helper Script**: `.agents/scripts/101domains-helper.sh`
-- **Key Features**: Bulk domain operations, pricing, availability
-
-### **AWS Route 53 API**
-
-- **Purpose**: DNS management, health checks
-- **Authentication**: AWS Access Keys
-- **Configuration**: `configs/route53-dns-config.json`
-- **Helper Script**: `.agents/scripts/dns-helper.sh`
-- **Key Features**: DNS hosting, health checks, traffic routing
-
-### **Namecheap API**
-
-- **Purpose**: Domain registration, DNS management
-- **Authentication**: API Key + Username
-- **Configuration**: `configs/namecheap-dns-config.json`
-- **Helper Script**: `.agents/scripts/dns-helper.sh`
-- **Key Features**: Domain management, DNS hosting, SSL certificates
-
-## 📧 **Communication APIs**
-
-### **Amazon SES API**
-
-- **Purpose**: Email delivery, bounce handling, analytics
-- **Authentication**: AWS Access Keys
-- **Configuration**: `configs/ses-config.json`
-- **Helper Script**: `.agents/scripts/ses-helper.sh`
-- **Key Features**: Email sending, bounce tracking, reputation monitoring
-
-### **Twilio API**
-
-- **Purpose**: SMS, voice calls, WhatsApp, phone verification, call recording
-- **Authentication**: Account SID + Auth Token
-- **Configuration**: `configs/twilio-config.json`
-- **Helper Script**: `.agents/scripts/twilio-helper.sh`
-- **Key Features**: SMS/MMS, voice calls, WhatsApp Business, Verify (2FA), Lookup, recordings, transcriptions
-- **AUP Compliance**: Must follow Twilio Acceptable Use Policy
-- **Recommended Client**: Telfon app for end-user interface (https://mytelfon.com/)
-
-### **MainWP API**
-
-- **Purpose**: WordPress site management, updates, monitoring
-- **Authentication**: API Key
-- **Configuration**: `configs/mainwp-config.json`
-- **Helper Script**: `.agents/scripts/mainwp-helper.sh`
-- **Key Features**: Site management, updates, backups, monitoring
-
-## 🔐 **Security & Code Quality APIs**
-
-### **Vaultwarden API**
-
-- **Purpose**: Password management, secure credential storage
-- **Authentication**: API Token
-- **Configuration**: `configs/vaultwarden-config.json`
-- **Helper Script**: `.agents/scripts/vaultwarden-helper.sh`
-- **Key Features**: Credential storage, secure sharing, audit logs
-
-### **CodeRabbit API**
-
-- **Purpose**: AI-powered code review, security analysis
-- **Authentication**: API Key
-- **Setup Script**: `.agents/scripts/coderabbit-cli.sh`
-- **Key Features**: Automated code review, security scanning, suggestions
-
-### **Codacy API**
-
-- **Purpose**: Code quality analysis, technical debt tracking
-- **Authentication**: API Token
-- **Setup Script**: `.agents/scripts/codacy-cli.sh`
-- **Key Features**: Quality metrics, security analysis, coverage tracking
-
-### **SonarCloud API**
-
-- **Purpose**: Security scanning, maintainability metrics
-- **Authentication**: API Token
-- **Integration**: GitHub Actions workflow
-- **Key Features**: Security hotspots, code smells, coverage analysis
-
-### **CodeFactor API**
-
-- **Purpose**: Automated code quality grading
-- **Authentication**: GitHub integration
-- **Setup**: Automatic via GitHub
-- **Key Features**: Quality scoring, trend analysis, file-level metrics
-
-## 🔍 **SEO & Analytics APIs**
-
-### **Ahrefs API**
-
-- **Purpose**: SEO analysis, backlink research, keyword tracking
-- **Authentication**: API Key
-- **MCP Integration**: `mcp-server-ahrefs`
-- **Key Features**: Backlink analysis, keyword research, competitor analysis
-
-### **Google Search Console API**
-
-- **Purpose**: Search performance, indexing status
-- **Authentication**: Service Account (Google Cloud)
-- **MCP Integration**: `mcp-server-gsc`
-- **Key Features**: Search analytics, Core Web Vitals, index coverage
-
-### **Perplexity API**
-
-- **Purpose**: AI-powered research and content generation
-- **Authentication**: API Key
-- **MCP Integration**: `perplexity-mcp`
-- **Key Features**: Research queries, content generation, fact-checking
-
-## ⚡ **Development & Git APIs**
-
-### **GitHub API**
-
-- **Purpose**: Repository management, actions, security
-- **Authentication**: Personal Access Token
-- **Helper Script**: `.agents/scripts/git-platforms-helper.sh`
-- **Key Features**: Repository operations, workflow management, security scanning
-
-### **GitLab API**
-
-- **Purpose**: Project management, CI/CD, security scanning
-- **Authentication**: Personal Access Token
-- **Helper Script**: `.agents/scripts/git-platforms-helper.sh`
-- **Key Features**: Project management, pipeline automation, security features
-
-### **Gitea API**
-
-- **Purpose**: Self-hosted Git operations, user management
-- **Authentication**: API Token
-- **Helper Script**: `.agents/scripts/git-platforms-helper.sh`
-- **Key Features**: Repository management, user administration, webhooks
-
-### **Context7 API**
-
-- **Purpose**: Real-time documentation access
-- **Authentication**: API Key
-- **MCP Integration**: `@context7/mcp-server`
-- **Key Features**: Library documentation, code examples, API references
-
-### **LocalWP API**
-
-- **Purpose**: WordPress database operations, site management
-- **Authentication**: Local access
-- **MCP Integration**: Custom MCP server
-- **Key Features**: Database queries, site management, development tools
-
-### **Pandoc Document Conversion**
-
-- **Purpose**: Convert various document formats to markdown for AI processing
-- **Authentication**: Local tool (no API key required)
-- **Helper Script**: `.agents/scripts/pandoc-helper.sh`
-- **Key Features**: Multi-format conversion, batch processing, AI-optimized output
-- **Supported Formats**: Word, PDF, HTML, EPUB, LaTeX, and 20+ other formats
-
-### **Agno AgentOS**
-
-- **Purpose**: Local AI agent operating system for DevOps automation
-- **Authentication**: API keys for LLM providers (OpenAI, Anthropic, etc.)
-- **Setup Script**: `.agents/scripts/agno-setup.sh`
-- **Key Features**: Multi-agent framework, production runtime, complete privacy
-- **Agents**: DevOps Assistant, Code Review Agent, Documentation Agent
-- **Interface**: Agent-UI web interface and REST API
-
-### **Local Browser Automation (Playwright/Selenium)**
-
-- **Purpose**: LOCAL web automation and browser-based task automation (privacy-first)
-- **Authentication**: Website credentials (stored securely in local environment only)
-- **Setup Script**: Included in `.agents/scripts/agno-setup.sh`
-- **Key Features**: LOCAL LinkedIn automation, web scraping, form filling, social media management
-- **Privacy**: Complete local operation - no cloud services or external browsers
-- **Agents**: LinkedIn Automation Assistant (local), Web Automation Assistant (local)
-- **Tools**: LOCAL Playwright, LOCAL Selenium, BeautifulSoup, ethical automation guidelines
-- **Security**: Enterprise-grade privacy with local-only browser instances
-
-## 🔧 **API Integration Features**
-
-### **Standardized Authentication**
-
-- Consistent token management across all APIs
-- Secure credential storage in separate config files
-- Environment variable support for CI/CD
-
-### **Rate Limiting & Error Handling**
-
-- Built-in respect for API limits and quotas
-- Comprehensive error messages and retry logic
-- Graceful degradation when APIs are unavailable
-
-### **Security & Compliance**
-
-- Secure credential storage with proper file permissions
-- Minimal permission scoping for all API keys
-- Complete audit trail of all API operations
-
-### **Monitoring & Logging**
-
-- Comprehensive logging of all API interactions
-- Performance monitoring and analytics
-- Error tracking and alerting
-
-## 🚀 **Getting Started**
-
-### **Quick Setup**
+## Setup
 
 ```bash
-# Setup all API integrations
-bash setup.sh
+bash setup.sh  # Full setup
 
-# Configure specific API
+# Single service
 cp configs/[service]-config.json.txt configs/[service]-config.json
-# Edit with your API credentials
-
-# Test API connection
-./.agents/scripts/[service]-helper.sh test-connection
+scripts/[service]-helper.sh test-connection
 ```
 
-### **API Key Management**
+## Service Catalog
 
-```bash
-# Secure API key setup
-bash .agents/scripts/setup-local-api-keys.sh set [service]-api-key YOUR_API_KEY
+### Security & Code Quality
 
-# List configured APIs
-bash .agents/scripts/setup-local-api-keys.sh list
+| Service | Auth | Notes |
+|---------|------|-------|
+| Vaultwarden | API Token | Credential storage, secure sharing, audit logs |
+| CodeRabbit | API Key | AI code review (`coderabbit-cli.sh`), security scanning |
+| Codacy | API Token | Quality metrics, coverage tracking (`codacy-cli.sh`) |
+| SonarCloud | API Token | Security hotspots, code smells, coverage (GitHub Actions) |
+| CodeFactor | GitHub integration | Quality scoring, trend analysis (automatic) |
 
-# Test all API connections
-bash .agents/scripts/test-all-apis.sh
-```
+### Git Platforms
 
-## 📚 **Additional Resources**
+Shared helper: `git-platforms-helper.sh`.
 
-- [MCP Integration Guide](MCP-INTEGRATIONS.md)
-- [Security Best Practices](.agents/aidevops/security.md)
+| Service | Auth | Notes |
+|---------|------|-------|
+| GitHub | Personal Access Token | Repos, Actions, security scanning |
+| GitLab | Personal Access Token | Projects, CI/CD pipelines, security features |
+| Gitea | API Token | Self-hosted repos, user admin, webhooks |
+
+### Infrastructure & Hosting
+
+| Service | Auth | Notes |
+|---------|------|-------|
+| Hostinger | API Token | VPS, domains, hosting plans |
+| Hetzner Cloud | API Token | Servers, networking, snapshots, load balancers |
+| Closte | API Key | Managed hosting, app deployment |
+| Coolify | API Token | Self-hosted PaaS, Docker, service management |
+
+### Domain & DNS
+
+| Service | Auth | Notes |
+|---------|------|-------|
+| Cloudflare | API Token (scoped) | DNS, security rules, analytics (`cloudflare-dns-config.json`, `dns-helper.sh`) |
+| Spaceship | API Key | Registration, WHOIS, transfers (`spaceship-helper.sh`) |
+| 101domains | API Credentials | Bulk operations, pricing, availability (`101domains-helper.sh`) |
+| AWS Route 53 | AWS Access Keys | DNS hosting, health checks, traffic routing (`route53-dns-config.json`, `dns-helper.sh`) |
+| Namecheap | API Key + Username | Domain management, DNS, SSL certificates (`namecheap-dns-config.json`, `dns-helper.sh`) |
+
+### Communication
+
+| Service | Auth | Notes |
+|---------|------|-------|
+| Amazon SES | AWS Access Keys | Email delivery, bounce tracking, reputation |
+| Twilio | SID + Token | SMS, voice, WhatsApp, 2FA. AUP required. UI: https://mytelfon.com/ |
+| MainWP | API Key | WordPress site management, updates, backups |
+
+### SEO & Analytics
+
+| Service | Auth | Notes |
+|---------|------|-------|
+| Ahrefs | API Key | Backlink analysis, keyword research (`mcp-server-ahrefs`) |
+| Google Search Console | Service Account (GCP) | Search analytics, Core Web Vitals (`mcp-server-gsc`) |
+| Perplexity | API Key | Research queries, fact-checking (`perplexity-mcp`) |
+
+### Development Tools
+
+| Service | Auth | Notes |
+|---------|------|-------|
+| Context7 | API Key | Real-time library docs, code examples (`@context7/mcp-server`) |
+| LocalWP | Local access | WordPress DB queries, site management (custom MCP server) |
+| Pandoc | None (local) | Multi-format to markdown conversion, 20+ formats (`pandoc-helper.sh`) |
+| Agno AgentOS | LLM keys | Multi-agent framework, production runtime (`agno-setup.sh`) |
+| Playwright/Selenium | Site credentials | Local browser automation only — no cloud services (`agno-setup.sh`) |
+
+## References
+
+- [Security Best Practices](security.md)
 - [Configuration Templates](../configs/)
-- [Helper Scripts](../.agents/scripts/)
-- [API Testing Scripts](.agents/scripts/)
+- [Helper Scripts](../scripts/)

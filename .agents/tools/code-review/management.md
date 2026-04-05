@@ -12,144 +12,53 @@ tools:
   task: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Quality Management Specification
 
 <!-- AI-CONTEXT-START -->
 
 ## Quick Reference
 
-- Methodology: Zero technical debt through systematic resolution
-- Core principle: Enhance functionality, never delete to fix issues
-- Priority order: S7679 (critical) -> S1481 -> S1192 -> S7682 -> ShellCheck
-- S7679 fix: Use `printf '%s50/month\n' '$'` instead of `echo "$50/month"`
-- S1481 fix: Enhance usage of variable or remove if truly unused
-- S1192 fix: Create `readonly CONSTANT="repeated string"` at file top
-- Key scripts: linters-local.sh, quality-fix.sh, quality-cli-manager.sh
-- Achievement: 349 -> 42 issues (88% reduction), 100% critical resolved
-- Success: Zero S7679/S1481, <10 S1192, 100% feature retention
+- **Rule**: enhance functionality; never delete behavior to silence a warning
+- **Priority**: S7679 (critical) → S1481 → S1192 → S7682 → ShellCheck
+- **Automate first**: batch fixes; keep quality gates in the workflow
+- S7679: `printf 'Price: %s50/month\n' '$'`, not `echo "Price: $50/month"`
+- S1481: improve variable usage before deleting; do not remove to silence
+- S1192: lift repeated literals (3+) to top-level `readonly` constants
+- Scripts: `linters-local.sh`, `quality-fix.sh`, `quality-cli-manager.sh`
+- Baseline: 349 → 42 issues (88% reduction), 100% critical resolved
+- Targets: zero S7679/S1481, <10 S1192, 100% feature retention
+
 <!-- AI-CONTEXT-END -->
 
-## Zero Technical Debt Methodology
+## Fix Patterns
 
-> **Note**: This document is supplementary to the [AGENTS.md](../AGENTS.md).
-> For any conflicts, the main AGENTS.md takes precedence as the single source of truth.
+| Issue | Root cause | Fix |
+|-------|-----------|-----|
+| S7679 | Shell expands `$50`/`$200` as positional params | `printf 'Price: %s50/month\n' '$'` |
+| S1481 | Unused variable | Add meaningful usage (e.g., conditional branch) before considering removal |
+| S1192 | String literal repeated 3+ times | `readonly CONTENT_TYPE_JSON="Content-Type: application/json"` |
 
-### Overview
+## Tools
 
-This document provides detailed methodology and historical context for our systematic approach to achieving zero technical debt. Current status: SonarCloud issues reduced from 349 to 66 (81% reduction) while enhancing functionality.
+| Tool | Purpose |
+|------|---------|
+| `linters-local.sh` | Multi-platform quality validation |
+| `quality-fix.sh` | Batch automated fixes |
+| `fix-content-type.sh` | Consolidate `Content-Type` headers |
+| `fix-auth-headers.sh` | Standardize authorization headers |
+| `fix-error-messages.sh` | Extract common error-message constants |
+| `markdown-formatter.sh` | Enforce Markdown quality |
+| `quality-cli-manager.sh` | Manage CodeRabbit, Codacy, and SonarScanner |
 
-### Core Principles
+## Success Criteria
 
-#### 1. Functionality Enhancement Over Deletion
-
-- **Never remove functionality** to fix quality issues
-- **Enhance existing code** to resolve violations
-- **Add value** while addressing technical debt
-- **Preserve all user-facing features** throughout quality improvements
-
-#### 2. Systematic Priority-Based Resolution
-
-**Priority Order (SonarCloud Rule Severity):**
-
-1. **S7679 (Positional Parameters)** - Critical shell interpretation issues
-2. **S1481 (Unused Variables)** - Code clarity and maintenance
-3. **S1192 (String Literals)** - Code duplication and maintainability
-4. **S7682 (Return Statements)** - Function consistency
-5. **ShellCheck Issues** - Best practices and style
-
-#### 3. Automation-First Approach
-
-- **Create reusable tools** for each issue type
-- **Batch process** similar violations across files
-- **Document patterns** for future maintenance
-- **Build quality gates** into development workflow
-
-### Issue Resolution Patterns
-
-#### Positional Parameters (S7679) - RESOLVED ✅
-
-**Problem**: Shell interpreting `$50`, `$200` as positional parameters
-**Solution**: Use printf format strings
-
-```bash
-# ❌ BEFORE (triggers S7679)
-echo "Price: $50/month"
-
-# ✅ AFTER (compliant)
-printf 'Price: %s50/month\n' '$'
-```
-
-#### Unused Variables (S1481) - RESOLVED ✅
-
-**Problem**: Variables assigned but never used
-**Solutions**:
-
-1. **Enhance functionality** (preferred)
-2. **Remove if truly unused**
-3. **Use in logging/debugging**
-
-```bash
-# ❌ BEFORE (unused variable)
-local port
-read -r port
-
-# ✅ AFTER (enhanced functionality)
-local port
-read -r port
-if [[ -n "$port" && "$port" != "22" ]]; then
-    ssh -p "$port" "$host"
-else
-    ssh "$host"
-fi
-```
-
-#### String Literals (S1192) - MAJOR PROGRESS 📊
-
-**Problem**: Repeated string literals (3+ occurrences)
-**Solution**: Create readonly constants
-
-```bash
-# ❌ BEFORE (repeated literals)
-curl -H "Content-Type: application/json"
-curl -H "Content-Type: application/json"
-curl -H "Content-Type: application/json"
-
-# ✅ AFTER (constant usage)
-readonly CONTENT_TYPE_JSON="Content-Type: application/json"
-curl -H "$CONTENT_TYPE_JSON"
-curl -H "$CONTENT_TYPE_JSON"
-curl -H "$CONTENT_TYPE_JSON"
-```
-
-### Quality Tools & Scripts
-
-#### Automated Quality Tools
-
-- **linters-local.sh**: Comprehensive multi-platform quality validation
-- **fix-content-type.sh**: Content-Type header consolidation
-- **fix-auth-headers.sh**: Authorization header standardization
-- **fix-error-messages.sh**: Common error message constants
-- **markdown-formatter.sh**: Markdown quality compliance
-
-#### Quality CLI Integration
-
-- **CodeRabbit CLI**: AI-powered code review
-- **Codacy CLI v2**: Comprehensive static analysis
-- **SonarScanner CLI**: SonarCloud integration
-- **quality-cli-manager.sh**: Unified CLI management
-
-### Measurement & Tracking
-
-#### Key Metrics
-
-- **SonarCloud Issues**: 349 → 42 (88% reduction)
-- **Critical Violations**: S7679 & S1481 = 0 (100% resolved)
-- **String Literals**: 50+ violations eliminated
-- **Code Quality**: A-grade maintained across platforms
-
-#### Success Criteria
-
-- **Zero Critical Issues**: S7679, S1481 completely resolved
-- **Minimal String Duplication**: <10 S1192 violations
-- **ShellCheck Compliance**: <5 critical violations per file
-- **Functionality Preservation**: 100% feature retention
+| Metric | Target |
+|--------|--------|
+| S7679 and S1481 violations | 0 |
+| S1192 violations | <10 |
+| ShellCheck critical findings per file | <5 |
+| Feature retention | 100% |
+| SonarCloud issues | 42 (down from 349, 88% reduction) |

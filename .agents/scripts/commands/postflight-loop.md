@@ -4,96 +4,47 @@ agent: Build+
 mode: subagent
 ---
 
-Monitor release health after deployment using iterative checks.
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
 
-Arguments: $ARGUMENTS
+Monitor release health after deployment. Arguments: `$ARGUMENTS`
 
 ## Usage
 
 ```bash
-/postflight-loop [--monitor-duration Nm] [--max-iterations N]
+/postflight-loop [--monitor-duration 5m] [--max-iterations 5]
 ```
+
+## Core Contract
+
+1. Parse `$ARGUMENTS` into `monitor_duration` and `max_iterations`.
+2. On each pass, use `gh` to verify the latest CI status, release tag presence, and `VERSION` ↔ release-tag match.
+3. Record status, iteration, elapsed time, last check, and per-check results in `.agents/loop-state/quality-loop.local.md`.
+4. Emit `<promise>RELEASE_HEALTHY</promise>` only when every check passes inside the monitoring window.
 
 ## Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--monitor-duration <t>` | How long to monitor (e.g., 5m, 10m, 1h) | 5m |
-| `--max-iterations <n>` | Max checks during monitoring | 5 |
-
-## Workflow
-
-### Step 1: Parse Arguments
-
-Extract from $ARGUMENTS:
-- `monitor_duration` - Duration string (e.g., "10m", "1h")
-- `max_iterations` - Number of check iterations
-
-### Step 2: Run Postflight Loop
-
-Monitor release health iteratively using `gh` CLI to check CI workflows, release tags, and version consistency.
-
-### Step 3: Report Results
-
-The script performs these checks each iteration:
-
-1. **CI Workflow Status** - Latest GitHub Actions workflow state
-2. **Release Tag Exists** - Verify the release tag was created
-3. **Version Consistency** - VERSION file matches release tag
-
-## Completion Promise
-
-When all checks pass: `<promise>RELEASE_HEALTHY</promise>`
+| Option | Purpose | Default |
+|--------|---------|---------|
+| `--monitor-duration <t>` | Total monitoring window such as `5m`, `10m`, or `1h` | `5m` |
+| `--max-iterations <n>` | Max monitoring passes | `5` |
 
 ## Examples
 
-**Monitor for 10 minutes:**
-
 ```bash
 /postflight-loop --monitor-duration 10m
-```
-
-**Extended monitoring with more checks:**
-
-```bash
 /postflight-loop --monitor-duration 1h --max-iterations 10
-```
-
-**Quick verification:**
-
-```bash
 /postflight-loop --monitor-duration 2m --max-iterations 3
 ```
 
-## State Tracking
+## Use When
 
-Progress is tracked in `.agents/loop-state/quality-loop.local.md`:
+- After `/release`, a manual release, or CI/CD verification
 
-```markdown
-## Postflight Loop State
+## Related
 
-- **Status:** monitoring
-- **Iteration:** 3/5
-- **Elapsed:** 180s/600s
-- **Last Check:** 2025-01-11T14:30:00Z
-
-### Check Results
-- [x] CI workflow: passing
-- [x] Release tag: v2.44.0 exists
-- [x] Version consistency: matched
-```
-
-## When to Use
-
-- After running `/release` to verify deployment health
-- After manual releases to confirm everything is working
-- As part of CI/CD pipeline verification
-
-## Related Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/preflight` | Quality checks before release |
-| `/release` | Full release workflow |
-| `/postflight` | Single postflight check (no loop) |
-| `/preflight-loop` | Iterative preflight until passing |
+- `/postflight` — single postflight check
+- `/release` — full release workflow
+- `/preflight` — quality checks before release
+- `/preflight-loop` — iterative preflight until passing
+- `workflows/postflight.md` — broader release-health checks and rollback guidance

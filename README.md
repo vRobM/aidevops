@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # AI DevOps Framework
 
 **[aidevops.sh](https://aidevops.sh)** — An [OpenCode](https://opencode.ai/) plugin and AI operations platform for launching and managing development, business, marketing, and creative projects. 13 specialist AI agents handle the automatable work across every domain so your time is preserved for real-world discovery and decisions that AI cannot yet reach.
@@ -101,6 +104,7 @@ The result: an AI operations platform that manages projects across every busines
 - `aidevops update` - Update framework
 - `aidevops auto-update` - Automatic update polling (enable/disable/status)
 - `aidevops secret` - Manage secrets (gopass encrypted, AI-safe)
+- `aidevops security` - Full security assessment (posture, secrets, supply chain)
 - `/onboarding` - Interactive setup wizard (in AI assistant)
 
 ### Agent Structure
@@ -122,6 +126,26 @@ The result: an AI operations platform that manages projects across every busines
 
 **Capabilities:** Execute commands, access credentials, modify infrastructure, interact with APIs
 **Your responsibility:** Use trusted AI providers, rotate credentials regularly, monitor activity
+
+### Security Commands
+
+```bash
+aidevops security              # Run ALL checks (posture + hygiene + supply chain)
+aidevops security posture      # Interactive security posture setup (gopass, gh auth, SSH)
+aidevops security status       # Combined posture + hygiene summary
+aidevops security scan         # Secret hygiene & supply chain scan only
+aidevops security scan-pth     # Python .pth file audit (supply chain attack vector)
+aidevops security scan-secrets # Plaintext credential locations only
+aidevops security scan-deps    # Unpinned dependency check
+aidevops security check        # Per-repo security posture assessment
+aidevops security dismiss <id> # Dismiss a security advisory after taking action
+```
+
+Running `aidevops security` with no arguments is the single command that covers everything — user security posture, plaintext secret detection, supply chain IoC scanning, and active advisories.
+
+**Security advisories** are delivered via `aidevops update` and shown in the session greeting until dismissed. The scanner never exposes secret values — only file locations and key names. All remediation commands should be run in a separate terminal, not inside AI chat sessions.
+
+**Supply chain hardening:** All Python dependencies are pinned to exact versions (`==`) to prevent malicious package upgrades. The `.pth` file auditor detects known supply chain attack indicators (e.g., the LiteLLM March 2026 PyPI compromise).
 
 ## **Quick Start**
 
@@ -179,6 +203,7 @@ git clone https://github.com/marcusquinn/aidevops.git ~/Git/aidevops
 
 ```bash
 aidevops status           # Check what's installed
+aidevops doctor           # Detect duplicate installs and PATH conflicts
 aidevops update           # Update framework + check registered projects
 aidevops auto-update      # Manage automatic update polling (every 10 min)
 aidevops init             # Initialize aidevops in any project
@@ -273,21 +298,78 @@ See `.agents/tools/task-management/beads.md` for complete documentation and inst
 
 ### OpenCode Anthropic OAuth (Built-in)
 
-OpenCode v1.1.36+ includes Anthropic OAuth authentication natively. No external plugin is needed.
+OpenCode includes Anthropic OAuth authentication natively — no API key needed. OAuth is covered by your Claude Pro/Max subscription at zero additional cost.
 
-**After setup, authenticate:**
+**Authenticate via the pool (recommended):**
 
 ```bash
-opencode auth login
-# Select: Anthropic → Claude Pro/Max
-# Follow OAuth flow in browser
+aidevops model-accounts-pool add anthropic
+# Opens browser OAuth flow — no API key required
+# Restart OpenCode after adding
 ```
+
+**Or via the OpenCode TUI:**
+
+Open OpenCode → `Ctrl+A` → Select **Anthropic** → **Login with Claude.ai** → follow browser OAuth flow.
+
+> **Note:** `opencode auth login` prompts for an API key, not OAuth. Use the commands above for subscription-based OAuth access.
 
 **Benefits:**
 
 - **Zero cost** for Claude Pro/Max subscribers (covered by subscription)
-- **Automatic token refresh** - No manual re-authentication needed
-- **Beta features enabled** - Extended thinking modes and latest features
+- **Automatic token refresh** — no manual re-authentication needed
+- **Multiple accounts** — add more accounts to the pool for automatic rotation when one hits rate limits
+- **Beta features enabled** — extended thinking modes and latest features
+
+### Cursor Models via Pool Proxy
+
+Access Cursor Pro models (Composer 2, Claude 4.6 Opus/Sonnet, GPT-5.x, Gemini 3.1 Pro) in OpenCode through a local gRPC proxy that translates OpenAI-compatible requests to Cursor's protobuf/HTTP2 protocol.
+
+**Setup:**
+
+```bash
+# Add your Cursor account to the pool (reads from local Cursor IDE)
+oauth-pool-helper.sh add cursor
+
+# Restart OpenCode — Cursor models appear in Ctrl+T model picker
+```
+
+**How it works:**
+
+- Reads Cursor credentials from the local IDE state database
+- Starts a gRPC proxy that speaks Cursor's native protocol (not the cursor-agent CLI)
+- Discovers available models via gRPC and registers them as an OpenCode provider
+- Supports true streaming, tool calling, and automatic token refresh
+- Falls back gracefully if no Cursor accounts are in the pool
+
+**Benefits:**
+
+- **Zero additional cost** for Cursor Pro subscribers
+- **True streaming** — responses stream as they arrive (not buffered)
+- **Tool calling** — Cursor's native MCP tool protocol works through the proxy
+- **Model discovery** — automatically detects all models available to your account
+- **Pool rotation** — multiple accounts with LRU rotation and 429 failover
+
+### Google AI Pool (Gemini CLI / Vertex AI)
+
+Use your Google AI Pro, AI Ultra, or Workspace subscription for Gemini models. Tokens are injected as ADC bearer tokens that Gemini CLI, Vertex AI SDK, and the Gemini API pick up automatically.
+
+**Setup:**
+
+```bash
+# Add your Google account to the pool (browser OAuth flow)
+aidevops model-accounts-pool add google
+
+# Restart OpenCode — token is injected as GOOGLE_OAUTH_ACCESS_TOKEN
+```
+
+**Supported plans:**
+
+- **Google AI Pro** (~$25/mo) — daily Gemini CLI limits
+- **Google AI Ultra** (~$65/mo) — higher daily limits
+- **Google Workspace** with Gemini add-on — enterprise daily limits
+
+**Isolation guarantee:** Google auth failures never affect Anthropic/OpenAI/Cursor providers. A Google 429 or auth error only puts the Google pool into cooldown.
 
 ### GitHub AI Agent Integration
 
@@ -336,6 +418,63 @@ See `.agents/tools/git/opencode-github-security.md` for the full security docume
 - **[Claude](https://claude.ai/)** (Anthropic) - Our most-used and tested model provider. Claude haiku, sonnet, and opus deliver the best results across all aidevops agent tiers and workflows. Recommended for users who want the highest quality output.
 - **[Tabby](https://tabby.sh/)** - Recommended terminal. Colour-coded Profiles per project/repo, **auto-syncs tab title with git repo/branch.**
 - **[Zed](https://zed.dev/)** - Recommended editor. High-performance with AI integration (use with the OpenCode Agent Extension).
+
+### Troubleshooting Auth
+
+If you see **"Anthropic Key Missing"**, **"OpenAI Key Missing"**, or the model stops responding, run these commands from any terminal — no working model session required.
+
+**Step 1 — Check pool health**
+
+```bash
+aidevops model-accounts-pool status       # counts: available / rate-limited / auth-error
+aidevops model-accounts-pool check        # live token validity test per account
+```
+
+**Step 2 — Fix based on what you see**
+
+| Symptom | Command |
+|---------|---------|
+| Account shows `rate-limited` | `aidevops model-accounts-pool rotate anthropic` |
+| All accounts in cooldown | `aidevops model-accounts-pool reset-cooldowns` |
+| Account shows `auth-error` | `aidevops model-accounts-pool add anthropic` (re-auth) |
+| Pool is empty (no accounts) | `aidevops model-accounts-pool add anthropic` |
+| Recently re-authed, still broken | `aidevops model-accounts-pool assign-pending anthropic` |
+| Google Gemini CLI rate-limited | `aidevops model-accounts-pool rotate google` |
+| Google token expired | `aidevops model-accounts-pool add google` (re-auth) |
+
+**Step 3 — If still broken, re-add the account**
+
+```bash
+aidevops model-accounts-pool add anthropic     # Claude Pro/Max — opens browser OAuth
+aidevops model-accounts-pool add openai        # ChatGPT Plus/Pro
+aidevops model-accounts-pool add cursor        # Cursor Pro (reads from local IDE)
+aidevops model-accounts-pool add google        # Google AI Pro/Ultra/Workspace — browser OAuth
+aidevops model-accounts-pool import claude-cli # Import from existing Claude CLI auth
+```
+
+Restart OpenCode after any `add`, `rotate`, or `reset-cooldowns` to pick up the new credentials.
+
+**Full command reference**
+
+```bash
+aidevops model-accounts-pool status            # Pool health at a glance
+aidevops model-accounts-pool list              # Per-account detail + expiry
+aidevops model-accounts-pool check             # Live API validity test
+aidevops model-accounts-pool rotate [provider] # Switch to next available account NOW
+aidevops model-accounts-pool reset-cooldowns   # Clear all rate-limit cooldowns
+aidevops model-accounts-pool assign-pending <p># Assign stranded pending token
+aidevops model-accounts-pool remove <p> <email># Remove an account
+```
+
+> **Note:** `reset-cooldowns` clears cooldowns in the pool file. If OpenCode is already running, the in-memory token endpoint cooldown is only cleared when OpenCode restarts or when you use the `/model-accounts-pool reset-cooldowns` slash command inside an active session.
+
+**If you prefer guided help:** Open OpenCode with a free model (OpenCode Zen includes free models that don't require any API key or subscription) and run the auth troubleshooting agent by typing:
+
+```
+@auth-troubleshooting
+```
+
+The agent contains the full recovery flow and symptom table. Free models work fine for this — no paid subscription needed.
 
 ### Terminal Tab Title Sync
 
@@ -1822,6 +1961,7 @@ Configure time tracking per-repo via `.aidevops.json`.
 | `/code-audit-remote` | Run remote auditing (CodeRabbit, Codacy, SonarCloud) |
 | `/code-standards` | Check against documented quality standards |
 | `/code-simplifier` | Simplify and refine code for clarity and maintainability |
+| `/testing-setup` | Interactive per-repo testing infrastructure setup with bundle-aware defaults |
 | `/list-keys` | List all configured API keys and their storage locations |
 | `/performance` | Web performance audit (Core Web Vitals, Lighthouse, PageSpeed) |
 | `/pr` | Unified PR workflow (orchestrates all checks) |
@@ -2308,7 +2448,7 @@ bash .agents/scripts/continue-cli.sh review
 **Wiki Guides:**
 
 - **[Getting Started](.wiki/Getting-Started.md)** - Installation and setup
-- **[Configuration Reference](docs/configuration.md)** - All JSONC/JSON config options, types, defaults, and examples
+- **[Configuration Reference](.agents/reference/configuration.md)** - All JSONC/JSON config options, types, defaults, and examples
 - **[CLI Reference](.wiki/CLI-Reference.md)** - aidevops command documentation
 - **[MCP Integrations](.wiki/MCP-Integrations.md)** - MCP servers setup
 - **[Providers](.wiki/Providers.md)** - Service provider configurations
@@ -2353,8 +2493,8 @@ aidevops is configured through two JSONC/JSON files that control framework behav
 
 | File | Purpose | CLI |
 |------|---------|-----|
-| [`~/.config/aidevops/config.jsonc`](docs/configuration.md#configjsonc--full-reference) | Framework config: updates, models, safety, quality, orchestration, paths | `aidevops config` |
-| [`~/.config/aidevops/settings.json`](docs/configuration.md#settingsjson--full-reference) | User preferences: onboarding, UI, model routing defaults | `settings-helper.sh` |
+| [`~/.config/aidevops/config.jsonc`](.agents/reference/configuration.md#configjsonc--full-reference) | Framework config: updates, models, safety, quality, orchestration, paths | `aidevops config` |
+| [`~/.config/aidevops/settings.json`](.agents/reference/configuration.md#settingsjson--full-reference) | User preferences: onboarding, UI, model routing defaults | `settings-helper.sh` |
 
 **Quick examples:**
 
@@ -2372,7 +2512,7 @@ aidevops config list
 aidevops config validate
 ```
 
-**Precedence:** Environment variables (`AIDEVOPS_*`) > config file > built-in defaults. See the **[full configuration reference](docs/configuration.md)** for every option, type, default, and example.
+**Precedence:** Environment variables (`AIDEVOPS_*`) > config file > built-in defaults. See the **[full configuration reference](.agents/reference/configuration.md)** for every option, type, default, and example.
 
 ### Service Credentials
 
@@ -2391,7 +2531,7 @@ cp configs/hetzner-config.json.txt configs/hetzner-config.json
 bash .agents/scripts/setup-mcp-integrations.sh all
 ```
 
-See [docs/configuration.md](docs/configuration.md#service-configuration-templates) for details on the template system and credential security.
+See [.agents/reference/configuration.md](.agents/reference/configuration.md#service-configuration-templates) for details on the template system and credential security.
 
 ## **Security & Best Practices**
 
@@ -2482,3 +2622,7 @@ bash <(curl -fsSL https://aidevops.sh/install)
 ```
 
 **An AI operations platform for launching and managing projects across every business domain — from code to content, infrastructure to invoicing.**
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=marcusquinn/aidevops&type=Date)](https://star-history.com/#marcusquinn/aidevops&Date)

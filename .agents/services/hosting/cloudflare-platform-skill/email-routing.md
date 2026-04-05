@@ -1,0 +1,19 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
+# Cloudflare Email Routing Skill Reference
+
+## Overview
+
+Cloudflare Email Routing enables custom email addresses for your domain that route to verified destination addresses. It's free, privacy-focused (no storage/access), and includes Email Workers for programmatic email processing.
+
+**Available to all Cloudflare customers using Cloudflare a...
+
+## In This Reference
+
+- **[patterns.md](./patterns.md)** - Common patterns, use cases, examples
+- **[gotchas.md](./gotchas.md)** - Troubleshooting, best practices, limitations
+
+## See Also
+
+- [Cloudflare Docs](https://developers.cloudflare.com/)

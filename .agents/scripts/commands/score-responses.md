@@ -4,69 +4,31 @@ agent: Build+
 mode: subagent
 ---
 
-Evaluate AI model responses against structured scoring criteria (correctness, completeness, code quality, clarity).
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
+Evaluate real AI responses against correctness, completeness, code quality, and clarity.
 
 Target: $ARGUMENTS
 
 ## Instructions
 
-1. Read `tools/ai-assistants/response-scoring.md` for the full scoring workflow.
+Read `tools/ai-assistants/response-scoring.md` for criteria weights, storage details, and helper syntax.
 
-2. If the user wants to create a new evaluation:
+## Workflow
 
-   ```bash
-   # Create a prompt
-   ~/.aidevops/agents/scripts/response-scoring-helper.sh prompt add --title "Title" --text "Prompt text"
+1. `prompt add` — save the shared evaluation prompt.
+2. `record` — capture one response per model with timing/tokens.
+3. `score` — rate all four criteria for each response.
+4. `compare` or `leaderboard` — rank the responses side-by-side.
+5. `export` — optional CSV output for reuse.
 
-   # Record model responses
-   ~/.aidevops/agents/scripts/response-scoring-helper.sh record --prompt <id> --model <model_id> --text "response"
-
-   # Score each response
-   ~/.aidevops/agents/scripts/response-scoring-helper.sh score --response <id> --correctness <1-5> --completeness <1-5> --code-quality <1-5> --clarity <1-5>
-   ```
-
-3. If the user wants to compare existing results:
-
-   ```bash
-   # Compare responses for a prompt
-   ~/.aidevops/agents/scripts/response-scoring-helper.sh compare --prompt <id>
-
-   # View leaderboard
-   ~/.aidevops/agents/scripts/response-scoring-helper.sh leaderboard
-   ```
-
-4. If the user wants to run a live comparison:
-   - Send the same prompt to multiple models using their respective APIs
-   - Record each response with timing and token count
-   - Score each response on all four criteria
-   - Present the side-by-side comparison
-
-5. Present results with:
-   - Side-by-side scoring table
-   - Winner declaration with rationale
-   - Per-criterion breakdown
-   - Cost-effectiveness analysis (score per dollar)
-
-6. Scores automatically sync to the pattern tracker (t1099), feeding into `/route` and `/patterns` for data-driven model selection. Disable with `SCORING_NO_PATTERN_SYNC=1`. Bulk sync existing data with `response-scoring-helper.sh sync`.
-
-## Scoring Criteria
-
-| Criterion | Weight | Description |
-|-----------|--------|-------------|
-| Correctness | 30% | Factual accuracy and technical correctness |
-| Completeness | 25% | Coverage of all requirements and edge cases |
-| Code Quality | 25% | Clean code, best practices, maintainability |
-| Clarity | 20% | Clear explanation, good formatting, readability |
+Scores auto-sync to the pattern tracker (t1099), feeding `/route` and `/patterns`. Disable: `SCORING_NO_PATTERN_SYNC=1`. Bulk sync: `response-scoring-helper.sh sync`.
 
 ## Examples
 
 ```bash
-# Full evaluation workflow
 /score-responses --prompt "Write a Python function to merge two sorted lists" --models "claude-sonnet-4-6,gpt-4o,gemini-2.5-pro"
-
-# View existing comparisons
 /score-responses --leaderboard
-
-# Export results
 /score-responses --export --csv
 ```

@@ -13,6 +13,9 @@ tools:
   context7_*: true
 ---
 
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 Marcus Quinn -->
+
 # Superwall - Paywall Experimentation Platform
 
 <!-- AI-CONTEXT-START -->
@@ -25,7 +28,7 @@ tools:
 - **SDKs**: `SuperwallKit` (Swift), `@superwall/react-native-superwall` (React Native)
 - **Best for**: Apps with >$100K MRR looking to optimise conversion
 
-**When to use Superwall vs RevenueCat Paywalls**:
+**Superwall vs RevenueCat Paywalls**:
 
 | Feature | Superwall | RevenueCat Paywalls |
 |---------|-----------|-------------------|
@@ -41,65 +44,34 @@ tools:
 
 ## Core Concepts
 
-### Paywalls
-
-Paywalls are configured remotely in the Superwall dashboard:
-
-- Design paywall UI without code changes
-- Set which products to display
-- Configure free trial offers
-- Add/remove features from comparison tables
-- Change copy, images, and layout
-
-### Placements
-
-Placements define where paywalls can appear in your app:
+- **Paywalls**: Configured remotely — design, products, trials, copy, and layout without app updates.
+- **Placements**: Code hooks where paywalls can appear. Callback runs when user has access (purchased or in holdout).
+- **Campaigns**: Connect placements to paywalls with targeting rules, A/B variants, and holdout groups.
 
 ```swift
-// Swift
-Superwall.shared.register(placement: "feature_gate") {
-  // This runs if user has access (purchased or in holdout)
-  unlockFeature()
-}
+// Swift — register a placement
+Superwall.shared.register(placement: "feature_gate") { unlockFeature() }
 ```
 
 ```typescript
-// React Native
-Superwall.shared.register('feature_gate', () => {
-  // User has access
-  unlockFeature();
-});
+// React Native — register a placement
+Superwall.shared.register('feature_gate', () => { unlockFeature(); });
 ```
-
-### Campaigns
-
-Campaigns connect placements to paywalls with rules:
-
-- Which paywall to show at which placement
-- A/B test variants (show different paywalls to different users)
-- Holdout groups (show no paywall to measure impact)
-- Targeting rules (new users, returning users, specific segments)
 
 ## Setup
 
-### 1. Create Superwall Account
+**1. Create account** — sign up at https://superwall.com.
 
-Sign up at https://superwall.com and create an app.
+**2. Install SDK**
 
-### 2. Install SDK
-
-**Swift**:
-
-Add via SPM: `https://github.com/superwall/Superwall-iOS.git`
+Swift (SPM: `https://github.com/superwall/Superwall-iOS.git`):
 
 ```swift
 import SuperwallKit
-
-// Configure on app launch
 Superwall.configure(apiKey: "your_api_key")
 ```
 
-**React Native**:
+React Native:
 
 ```bash
 npm install @superwall/react-native-superwall
@@ -107,55 +79,28 @@ npm install @superwall/react-native-superwall
 
 ```typescript
 import Superwall from '@superwall/react-native-superwall';
-
 Superwall.configure('your_api_key');
 ```
 
-### 3. Configure with RevenueCat
-
-Superwall integrates with RevenueCat for purchase handling:
+**3. Configure with RevenueCat**:
 
 ```swift
-// Swift
-import SuperwallKit
-import RevenueCat
-
 let purchaseController = RCPurchaseController()
-Superwall.configure(
-  apiKey: "your_superwall_key",
-  purchaseController: purchaseController
-)
+Superwall.configure(apiKey: "your_superwall_key", purchaseController: purchaseController)
 ```
 
-### 4. Register Placements
-
-Add placements in your code where paywalls might appear:
+**4. Register placements** — add hooks at conversion points:
 
 ```swift
 Superwall.shared.register(placement: "onboarding_complete")
 Superwall.shared.register(placement: "premium_feature_tap")
-Superwall.shared.register(placement: "settings_upgrade")
 ```
 
-### 5. Configure in Dashboard
-
-1. Create paywalls in the visual editor
-2. Create campaigns linking placements to paywalls
-3. Set up A/B test variants
-4. Configure targeting rules
-5. Launch experiment
+**5. Configure in dashboard** — create paywalls in the visual editor, create campaigns linking placements to paywalls, set A/B variants and targeting rules, launch.
 
 ## Experimentation
 
-### A/B Testing
-
-- Test different paywall designs (layout, copy, images)
-- Test different pricing (monthly vs annual emphasis)
-- Test different trial lengths
-- Test different feature comparisons
-- Use holdout groups to measure paywall impact on retention
-
-### Metrics
+Test paywall designs, pricing emphasis, trial lengths, and feature comparisons. Use holdout groups to measure paywall impact on retention.
 
 | Metric | What It Tells You |
 |--------|-------------------|

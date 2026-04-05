@@ -13,9 +13,143 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only cancel in-progress runs on PR branches, not main.
+  # Cancelled runs show as "failing" on the badge — rapid main pushes
+  # (e.g. pulse auto-merges) would keep the badge red indefinitely.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Cross-platform shellcheck: catches macOS-only assumptions in shell scripts
+  # (t1748: Linux/WSL2 platform support)
+  cross-platform-shellcheck:
+    name: ShellCheck (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Install ShellCheck (macOS)
+      if: runner.os == 'macOS'
+      run: brew install shellcheck
+
+    - name: ShellCheck (cross-platform)
+      run: |
+        echo "Running ShellCheck on ${{ matrix.os }}..."
+        source .agents/scripts/lint-file-discovery.sh
+        lint_shell_files
+        errors=0
+        while IFS= read -r file; do
+          [ -n "$file" ] || continue
+          if shellcheck -S error "$file" > /dev/null 2>&1; then
+            echo "OK $file"
+          else
+            echo "FAIL $file"
+            shellcheck -S error -f gcc "$file" 2>&1
+            errors=$((errors + 1))
+          fi
+        done <<< "$LINT_SH_FILES"
+        if [ "$errors" -gt 0 ]; then
+          echo ""
+          echo "$errors script(s) failed ShellCheck on ${{ matrix.os }}"
+          exit 1
+        fi
+        echo "All shell scripts passed ShellCheck on ${{ matrix.os }}"
+
+    - name: Platform detection smoke test
+      run: |
+        echo "Testing platform-detect.sh on ${{ matrix.os }}..."
+        bash .agents/scripts/platform-detect.sh
+        echo "Platform detection: OK"
+
+  # Bash 3.2 compatibility: catches "\n"/"\t" in double-quoted strings and other
+  # bash 4+ constructs that break on macOS default bash (GH#17371)
+  bash32-compat:
+    name: Bash 3.2 Compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Bash 3.2 compatibility check
+      run: |
+        echo "Checking Bash 3.2 compatibility across all shell scripts..."
+
+        # Source shared file-discovery helper (single source of truth for exclusions)
+        source .agents/scripts/lint-file-discovery.sh
+        lint_shell_files
+
+        # Read threshold from config file (GH#17371 — ratchetable like other checks)
+        THRESHOLD=69
+        if [ -f ".agents/configs/complexity-thresholds.conf" ]; then
+          val=$(grep '^BASH32_COMPAT_THRESHOLD=' .agents/configs/complexity-thresholds.conf | cut -d= -f2 || true)
+          if [ -n "$val" ] && [ "$val" -eq "$val" ] 2>/dev/null; then
+            THRESHOLD=$val
+          fi
+        fi
+
+        violations=0
+        # Self-skip: linters-local.sh grep patterns contain the forbidden strings
+        # as search targets, not as bash code.
+        self_skip="linters-local.sh"
+
+        while IFS= read -r file; do
+          [ -n "$file" ] || continue
+          basename_file=$(basename "$file")
+          [ "$basename_file" = "$self_skip" ] && continue
+          [ -f "$file" ] || continue
+
+          # "\t" or "\n" in string concatenation (likely wants $'\t' or $'\n')
+          # Only flag += or = assignments, not awk/sed/printf/echo -e/python contexts
+          matches=$(grep -nE '\+="\\[tn]|="\\[tn]' "$file" 2>/dev/null \
+            | grep -vE '^[0-9]+:[[:space:]]*#' \
+            | grep -vE 'awk|sed|printf|echo.*-e|python|f\.write|gsub|join|split|print |replace|coords|excerpt|delimiter|regex|pattern' \
+            || true)
+          if [ -n "$matches" ]; then
+            while IFS= read -r line; do
+              echo "FAIL $file:$line [\"\\t\"/\"\\n\" — use \$'\\t' or \$'\\n' for actual whitespace]"
+              violations=$((violations + 1))
+            done <<< "$matches"
+          fi
+
+          # Associative arrays (bash 4.0+)
+          assoc=$(grep -nE '^[[:space:]]*(declare|local|typeset)[[:space:]]+-A[[:space:]]' "$file" 2>/dev/null \
+            | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+          if [ -n "$assoc" ]; then
+            while IFS= read -r line; do
+              echo "FAIL $file:$line [associative array — bash 4.0+]"
+              violations=$((violations + 1))
+            done <<< "$assoc"
+          fi
+
+          # Namerefs (bash 4.3+)
+          nameref=$(grep -nE '^[[:space:]]*(declare|local)[[:space:]]+-n[[:space:]]' "$file" 2>/dev/null \
+            | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+          if [ -n "$nameref" ]; then
+            while IFS= read -r line; do
+              echo "FAIL $file:$line [nameref -- bash 4.3+]"
+              violations=$((violations + 1))
+            done <<< "$nameref"
+          fi
+        done <<< "$LINT_SH_FILES"
+
+        echo ""
+        echo "Bash 3.2 compatibility violations: $violations"
+        # Threshold from .agents/configs/complexity-thresholds.conf (GH#17371).
+        # Reduce after each batch of bash32-compat cleanup PRs merges.
+        if [ "$violations" -gt "$THRESHOLD" ]; then
+          echo "::error::Bash 3.2 compatibility regression: $violations violations (threshold: $THRESHOLD)"
+          echo "macOS ships bash 3.2 — these constructs will break on macOS."
+          echo "See .agents/reference/bash-compat.md for alternatives."
+          exit 1
+        fi
+        echo "Within threshold ($THRESHOLD)"
+
   framework-validation:
     name: Framework Validation
     runs-on: ubuntu-latest
@@ -23,6 +157,12 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        # Fetch enough history for merge-base detection in safety-policy-check.sh.
+        # Without this, stale PR branches that predate new policy markers cause
+        # false-positive CI failures because the check can't distinguish regressions
+        # from missing markers. GH#6902.
+        fetch-depth: 0
 
     - name: Framework Structure Check
       run: |
@@ -89,12 +229,14 @@ jobs:
         done < <(git ls-files '*.json')
 
         # Also validate .json.txt template files
+        # These files may contain SPDX license header comments (lines starting with #)
+        # which are stripped before JSON validation.
         while IFS= read -r file; do
-          if python3 -m json.tool "$file" > /dev/null 2>&1; then
+          if grep -v '^#' "$file" | python3 -m json.tool > /dev/null 2>&1; then
             echo "✅ $file"
           else
             echo "❌ $file - invalid JSON"
-            python3 -m json.tool "$file" 2>&1 | head -5
+            grep -v '^#' "$file" | python3 -m json.tool 2>&1 | head -5
             errors=$((errors + 1))
           fi
         done < <(git ls-files '*.json.txt')
@@ -170,6 +312,15 @@ jobs:
         source .agents/scripts/lint-file-discovery.sh
         lint_shell_files
 
+        # Read threshold from config file (GH#5628 — ratchetable thresholds)
+        THRESHOLD=420
+        if [ -f ".agents/configs/complexity-thresholds.conf" ]; then
+          val=$(grep '^FUNCTION_COMPLEXITY_THRESHOLD=' .agents/configs/complexity-thresholds.conf | cut -d= -f2 || true)
+          if [ -n "$val" ] && [ "$val" -eq "$val" ] 2>/dev/null; then
+            THRESHOLD=$val
+          fi
+        fi
+
         echo "Checking shell function complexity (>100 lines = blocking)..."
         violations=0
         while IFS= read -r file; do
@@ -187,17 +338,27 @@ jobs:
 
         echo ""
         echo "Blocking violations (>100 lines): $violations"
-        # Threshold: current baseline (404) + margin. Reduce as debt is paid down.
-        if [ "$violations" -gt 420 ]; then
-          echo "::error::Function complexity regression: $violations violations (threshold: 420)"
+        # Threshold from .agents/configs/complexity-thresholds.conf (GH#5628).
+        # Reduce after each batch of simplification-debt PRs merges.
+        if [ "$violations" -gt "$THRESHOLD" ]; then
+          echo "::error::Function complexity regression: $violations violations (threshold: $THRESHOLD)"
           exit 1
         fi
-        echo "Within threshold (420)"
+        echo "Within threshold ($THRESHOLD)"
 
     - name: Shell nesting depth
       run: |
         source .agents/scripts/lint-file-discovery.sh
         lint_shell_files
+
+        # Read threshold from config file (GH#5628 — ratchetable thresholds)
+        THRESHOLD=260
+        if [ -f ".agents/configs/complexity-thresholds.conf" ]; then
+          val=$(grep '^NESTING_DEPTH_THRESHOLD=' .agents/configs/complexity-thresholds.conf | cut -d= -f2 || true)
+          if [ -n "$val" ] && [ "$val" -eq "$val" ] 2>/dev/null; then
+            THRESHOLD=$val
+          fi
+        fi
 
         echo "Checking shell nesting depth (>8 levels = blocking)..."
         violations=0
@@ -218,18 +379,28 @@ jobs:
 
         echo ""
         echo "Blocking violations (>8 depth): $violations"
-        # Threshold: current baseline (245) + margin. Reduce as debt is paid down.
-        if [ "$violations" -gt 260 ]; then
-          echo "::error::Nesting depth regression: $violations violations (threshold: 260)"
+        # Threshold from .agents/configs/complexity-thresholds.conf (GH#5628).
+        # Reduce after each batch of simplification-debt PRs merges.
+        if [ "$violations" -gt "$THRESHOLD" ]; then
+          echo "::error::Nesting depth regression: $violations violations (threshold: $THRESHOLD)"
           exit 1
         fi
-        echo "Within threshold (260)"
+        echo "Within threshold ($THRESHOLD)"
 
     - name: File size check
       run: |
         source .agents/scripts/lint-file-discovery.sh
         lint_shell_files
         lint_python_files
+
+        # Read threshold from config file (GH#5628 — ratchetable thresholds)
+        THRESHOLD=40
+        if [ -f ".agents/configs/complexity-thresholds.conf" ]; then
+          val=$(grep '^FILE_SIZE_THRESHOLD=' .agents/configs/complexity-thresholds.conf | cut -d= -f2 || true)
+          if [ -n "$val" ] && [ "$val" -eq "$val" ] 2>/dev/null; then
+            THRESHOLD=$val
+          fi
+        fi
 
         echo "Checking file sizes (>1500 lines = blocking)..."
         violations=0
@@ -246,12 +417,13 @@ jobs:
 
         echo ""
         echo "Blocking violations (>1500 lines): $violations"
-        # Threshold: current baseline (33) + margin. Reduce as debt is paid down.
-        if [ "$violations" -gt 40 ]; then
-          echo "::error::File size regression: $violations violations (threshold: 40)"
+        # Threshold from .agents/configs/complexity-thresholds.conf (GH#5628).
+        # Reduce after each batch of simplification-debt PRs merges.
+        if [ "$violations" -gt "$THRESHOLD" ]; then
+          echo "::error::File size regression: $violations violations (threshold: $THRESHOLD)"
           exit 1
         fi
-        echo "Within threshold (40)"
+        echo "Within threshold ($THRESHOLD)"
 
     - name: Python cyclomatic complexity (Lizard)
       run: |

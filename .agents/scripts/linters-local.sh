@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 Marcus Quinn
 # shellcheck disable=SC2086
 # =============================================================================
 # Local Linters - Fast Offline Quality Checks
@@ -12,9 +14,15 @@
 #   - Pattern validation (return statements, positional parameters)
 #   - Markdown formatting
 #   - Skill frontmatter validation (name field matches skill-sources.json)
+#   - Ratchet quality checks (anti-pattern regression prevention)
 #
 # For remote auditing (CodeRabbit, Codacy, SonarCloud), use:
 #   /code-audit-remote or code-audit-helper.sh
+#
+# Ratchet flags:
+#   --update-baseline   Re-count all patterns and write new ratchets.json baseline
+#   --init-baseline     Same as --update-baseline (alias for first-time setup)
+#   --strict            Make ratchet failures blocking (default: advisory)
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit
@@ -555,31 +563,29 @@ check_secrets() {
 	return $violations
 }
 
-# Check AI-Powered Quality CLIs integration
-check_markdown_lint() {
-	print_info "Checking Markdown Style..."
-
-	local md_files
-	local violations=0
-	local markdownlint_cmd=""
-
-	# Find markdownlint command
+# Resolve the markdownlint binary path, or return empty string if not found.
+_find_markdownlint_cmd() {
 	if command -v markdownlint &>/dev/null; then
-		markdownlint_cmd="markdownlint"
+		echo "markdownlint"
+	elif command -v markdownlint-cli2 &>/dev/null; then
+		echo "markdownlint-cli2"
 	elif [[ -f "node_modules/.bin/markdownlint" ]]; then
-		markdownlint_cmd="node_modules/.bin/markdownlint"
+		echo "node_modules/.bin/markdownlint"
+	elif [[ -f "node_modules/.bin/markdownlint-cli2" ]]; then
+		echo "node_modules/.bin/markdownlint-cli2"
 	fi
+	return 0
+}
 
-	# Get markdown files to check:
-	# 1. Uncommitted changes (staged + unstaged) - BLOCKING
-	# 2. If no uncommitted, check files changed in current branch vs main - BLOCKING
-	# 3. Fallback to all tracked .md files in .agents/ - NON-BLOCKING (advisory)
-	local check_mode="changed" # "changed" = blocking, "all" = advisory
+# Populate md_files and check_mode for check_markdown_lint.
+# Outputs two lines: first is check_mode ("changed"|"all"), rest are file paths.
+# Callers split on the first line to get mode, remainder for files.
+_collect_markdown_files() {
+	local md_files check_mode="changed"
+
 	if git rev-parse --git-dir >/dev/null 2>&1; then
-		# First try uncommitted changes
 		md_files=$(git diff --name-only --diff-filter=ACMR HEAD -- '*.md' 2>/dev/null)
 
-		# If no uncommitted, check branch diff vs main
 		if [[ -z "$md_files" ]]; then
 			local base_branch
 			base_branch=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo "")
@@ -588,7 +594,6 @@ check_markdown_lint() {
 			fi
 		fi
 
-		# Fallback: check all .agents/*.md files (advisory only)
 		if [[ -z "$md_files" ]]; then
 			md_files=$(git ls-files '.agents/**/*.md' 2>/dev/null)
 			check_mode="all"
@@ -598,75 +603,87 @@ check_markdown_lint() {
 		check_mode="all"
 	fi
 
+	echo "$check_mode"
+	echo "$md_files"
+	return 0
+}
+
+# Report markdownlint output and return appropriate exit code.
+# Arguments: $1=lint_output $2=lint_exit $3=check_mode
+_report_markdown_result() {
+	local lint_output="$1"
+	local lint_exit="$2"
+	local check_mode="$3"
+	local violations=0
+
+	if [[ -n "$lint_output" ]]; then
+		local violation_count
+		violation_count=$(echo "$lint_output" | grep -c "MD[0-9]" 2>/dev/null) || violation_count=0
+		if ! [[ "$violation_count" =~ ^[0-9]+$ ]]; then
+			violation_count=0
+		fi
+		violations=$violation_count
+
+		if [[ $violations -gt 0 ]]; then
+			echo "$lint_output" | head -10
+			if [[ $violations -gt 10 ]]; then
+				echo "... and $((violations - 10)) more"
+			fi
+			print_info "Run: markdownlint --fix <file> (or markdownlint-cli2 --fix <glob>)"
+			if [[ "$check_mode" == "changed" ]]; then
+				print_error "Markdown: $violations style issues in changed files (BLOCKING)"
+				return 1
+			else
+				print_warning "Markdown: $violations style issues found (advisory)"
+				return 0
+			fi
+		elif [[ $lint_exit -ne 0 ]]; then
+			print_error "Markdown: markdownlint failed with exit code $lint_exit (non-rule error)"
+			echo "$lint_output"
+			[[ "$check_mode" == "changed" ]] && return 1
+			return 0
+		fi
+	elif [[ $lint_exit -ne 0 ]]; then
+		print_error "Markdown: markdownlint failed with exit code $lint_exit (no output)"
+		[[ "$check_mode" == "changed" ]] && return 1
+		return 0
+	fi
+
+	print_success "Markdown: No style issues found"
+	return 0
+}
+
+# Check AI-Powered Quality CLIs integration
+check_markdown_lint() {
+	print_info "Checking Markdown Style..."
+
+	local markdownlint_cmd
+	markdownlint_cmd=$(_find_markdownlint_cmd)
+
+	# Collect files and mode (first line = mode, rest = file paths)
+	local collected check_mode md_files
+	collected=$(_collect_markdown_files)
+	check_mode=$(echo "$collected" | head -1)
+	md_files=$(echo "$collected" | tail -n +2)
+
 	if [[ -z "$md_files" ]]; then
 		print_success "Markdown: No markdown files to check"
 		return 0
 	fi
 
 	if [[ -n "$markdownlint_cmd" ]]; then
-		# Run markdownlint and capture output; preserve exit code separately
 		local lint_output lint_exit=0
 		lint_output=$($markdownlint_cmd $md_files 2>&1) || lint_exit=$?
-
-		if [[ -n "$lint_output" ]]; then
-			# Count violations - ensure single integer (grep -c can fail, use wc -l as fallback)
-			local violation_count
-			violation_count=$(echo "$lint_output" | grep -c "MD[0-9]" 2>/dev/null) || violation_count=0
-			# Ensure it's a valid integer
-			if ! [[ "$violation_count" =~ ^[0-9]+$ ]]; then
-				violation_count=0
-			fi
-			violations=$violation_count
-
-			if [[ $violations -gt 0 ]]; then
-				# Show violations first (common to both modes)
-				echo "$lint_output" | head -10
-				if [[ $violations -gt 10 ]]; then
-					echo "... and $((violations - 10)) more"
-				fi
-				print_info "Run: markdownlint --fix <file> to auto-fix"
-
-				# Mode-specific message and return code
-				if [[ "$check_mode" == "changed" ]]; then
-					print_error "Markdown: $violations style issues in changed files (BLOCKING)"
-					return 1
-				else
-					print_warning "Markdown: $violations style issues found (advisory)"
-					return 0
-				fi
-			elif [[ $lint_exit -ne 0 ]]; then
-				# markdownlint failed for a non-rule reason (bad config, invalid args, etc.)
-				# Output doesn't match MD[0-9] pattern so violation_count=0, but the tool itself errored
-				print_error "Markdown: markdownlint failed with exit code $lint_exit (non-rule error)"
-				echo "$lint_output"
-				if [[ "$check_mode" == "changed" ]]; then
-					return 1
-				else
-					return 0
-				fi
-			fi
-		elif [[ $lint_exit -ne 0 ]]; then
-			# markdownlint failed with no output (e.g., config parse error with no stderr)
-			print_error "Markdown: markdownlint failed with exit code $lint_exit (no output)"
-			if [[ "$check_mode" == "changed" ]]; then
-				return 1
-			else
-				return 0
-			fi
-		fi
-		print_success "Markdown: No style issues found"
-	else
-		# Fallback: basic checks without markdownlint
-		# NOTE: Without markdownlint, we can't reliably detect MD031/MD040 violations
-		# because we can't distinguish opening fences (need language) from closing fences (always bare)
-		# So fallback is always advisory-only and recommends installing markdownlint
-		print_warning "Markdown: markdownlint not installed - cannot perform full lint checks"
-		print_info "Install: npm install -g markdownlint-cli"
-		print_info "Then re-run to get blocking checks for changed files"
-		# Advisory only - don't block without proper tooling
-		return 0
+		_report_markdown_result "$lint_output" "$lint_exit" "$check_mode"
+		return $?
 	fi
 
+	# Fallback: markdownlint not installed
+	# NOTE: Without markdownlint, we can't reliably detect MD031/MD040 violations
+	# because we can't distinguish opening fences (need language) from closing fences (always bare)
+	print_warning "Markdown: markdownlint not installed - cannot perform full lint checks"
+	print_info "Install: npm install -g markdownlint-cli2 (or markdownlint-cli)"
+	print_info "Then re-run to get blocking checks for changed files"
 	return 0
 }
 
@@ -1198,6 +1215,58 @@ check_secret_policy() {
 # results — no error message, just broken behaviour. ShellCheck does NOT catch
 # most version incompatibilities, so this is a dedicated scanner.
 
+# _scan_bash32_file: scan a single file for bash 4.0+ incompatibilities.
+# Appends findings to tmp_file. Args: $1=file $2=tmp_file
+# Returns: 0 always.
+_scan_bash32_file() {
+	local file="$1"
+	local tmp_file="$2"
+
+	# declare -A / local -A (associative arrays — bash 4.0+)
+	grep -nE '^[[:space:]]*(declare|local)[[:space:]]+-A[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
+		printf '%s:%s [associative array — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
+	done
+
+	# mapfile / readarray (bash 4.0+)
+	grep -nE '^[[:space:]]*(mapfile|readarray)[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
+		printf '%s:%s [mapfile/readarray — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
+	done
+
+	# ${var,,} / ${var^^} case conversion (bash 4.0+)
+	# Exclude comments — grep -n prefixes "NNN:" so comments appear as "NNN:\s*#"
+	grep -n ',,}' "$file" 2>/dev/null | grep '\${' | grep -vE '^[0-9]+:[[:space:]]*#' | while IFS= read -r line; do
+		printf '%s:%s [case conversion ,,} — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
+	done
+	grep -n '^^}' "$file" 2>/dev/null | grep '\${' | grep -vE '^[0-9]+:[[:space:]]*#' | while IFS= read -r line; do
+		printf '%s:%s [case conversion ^^} — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
+	done
+
+	# declare -n / local -n namerefs (bash 4.3+)
+	grep -nE '^[[:space:]]*(declare|local)[[:space:]]+-n[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
+		printf '%s:%s [nameref — bash 4.3+]\n' "$file" "$line" >>"$tmp_file"
+	done
+
+	# coproc (bash 4.0+)
+	grep -nE '^[[:space:]]*coproc[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
+		printf '%s:%s [coproc — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
+	done
+
+	# &>> append-both (bash 4.0+)
+	grep -n '&>>' "$file" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | while IFS= read -r line; do
+		printf '%s:%s [&>> append — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
+	done
+
+	# "\t" or "\n" in string concatenation (likely wants $'\t' or $'\n')
+	# Only flag += or = assignments, not awk/sed/printf/echo -e/python contexts
+	grep -nE '\+="\\[tn]|="\\[tn]' "$file" 2>/dev/null |
+		grep -vE '^[0-9]+:[[:space:]]*#' |
+		grep -vE 'awk|sed|printf|echo.*-e|python|f\.write|gsub|join|split|print |replace|coords|excerpt|delimiter|regex|pattern' |
+		while IFS= read -r line; do
+			printf '%s:%s ["\t"/"\n" — use $'"'"'\\t'"'"' or $'"'"'\\n'"'"' for actual whitespace]\n' "$file" "$line" >>"$tmp_file"
+		done
+	return 0
+}
+
 check_bash32_compat() {
 	echo -e "${BLUE}Checking Bash 3.2 Compatibility...${NC}"
 
@@ -1217,49 +1286,7 @@ check_bash32_compat() {
 	for file in "${ALL_SH_FILES[@]}"; do
 		[[ -f "$file" ]] || continue
 		[[ "$(basename "$file")" == "$self_basename" ]] && continue
-
-		# declare -A / local -A (associative arrays — bash 4.0+)
-		grep -nE '^[[:space:]]*(declare|local)[[:space:]]+-A[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
-			printf '%s:%s [associative array — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
-		done
-
-		# mapfile / readarray (bash 4.0+)
-		grep -nE '^[[:space:]]*(mapfile|readarray)[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
-			printf '%s:%s [mapfile/readarray — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
-		done
-
-		# ${var,,} / ${var^^} case conversion (bash 4.0+)
-		# Exclude comments — grep -n prefixes "NNN:" so comments appear as "NNN:\s*#"
-		grep -n ',,}' "$file" 2>/dev/null | grep '\${' | grep -vE '^[0-9]+:[[:space:]]*#' | while IFS= read -r line; do
-			printf '%s:%s [case conversion ,,} — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
-		done
-		grep -n '^^}' "$file" 2>/dev/null | grep '\${' | grep -vE '^[0-9]+:[[:space:]]*#' | while IFS= read -r line; do
-			printf '%s:%s [case conversion ^^} — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
-		done
-
-		# declare -n / local -n namerefs (bash 4.3+)
-		grep -nE '^[[:space:]]*(declare|local)[[:space:]]+-n[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
-			printf '%s:%s [nameref — bash 4.3+]\n' "$file" "$line" >>"$tmp_file"
-		done
-
-		# coproc (bash 4.0+)
-		grep -nE '^[[:space:]]*coproc[[:space:]]' "$file" 2>/dev/null | while IFS= read -r line; do
-			printf '%s:%s [coproc — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
-		done
-
-		# &>> append-both (bash 4.0+)
-		grep -n '&>>' "$file" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | while IFS= read -r line; do
-			printf '%s:%s [&>> append — bash 4.0+]\n' "$file" "$line" >>"$tmp_file"
-		done
-
-		# "\t" or "\n" in string concatenation (likely wants $'\t' or $'\n')
-		# Only flag += or = assignments, not awk/sed/printf/echo -e/python contexts
-		grep -nE '\+="\\[tn]|="\\[tn]' "$file" 2>/dev/null |
-			grep -vE '^[0-9]+:[[:space:]]*#' |
-			grep -vE 'awk|sed|printf|echo.*-e|python|f\.write|gsub|join|split|print |replace|coords|excerpt|delimiter|regex|pattern' |
-			while IFS= read -r line; do
-				printf '%s:%s ["\t"/"\n" — use $'"'"'\\t'"'"' or $'"'"'\\n'"'"' for actual whitespace]\n' "$file" "$line" >>"$tmp_file"
-			done
+		_scan_bash32_file "$file" "$tmp_file"
 	done
 
 	if [[ -s "$tmp_file" ]]; then
@@ -1282,6 +1309,350 @@ check_bash32_compat() {
 	print_success "Bash 3.2 compatibility: no violations"
 
 	return 0
+}
+
+# =============================================================================
+# Ratchet Quality Check (t1878)
+# =============================================================================
+# Tracks anti-pattern counts against a stored baseline. Counts can only stay
+# the same or decrease — never increase. Prevents gradual quality regression
+# without requiring zero violations immediately.
+#
+# Baseline: .agents/configs/ratchets.json
+# Exceptions: .agents/configs/ratchet-exceptions/{pattern}.txt
+#
+# Usage:
+#   linters-local.sh                  # advisory ratchet check
+#   linters-local.sh --strict         # blocking ratchet check
+#   linters-local.sh --update-baseline # re-count and write new baseline
+
+# _ratchet_count_bare_positional: count $1-$9 in function bodies (not local assignments)
+# Returns: count via stdout
+_ratchet_count_bare_positional() {
+	local scripts_dir="$1"
+	local count=0
+	count=$(rg '\$[1-9]' --type sh "$scripts_dir" 2>/dev/null |
+		grep -v 'local.*=.*\$[1-9]' |
+		grep -v '^\s*#' |
+		wc -l | tr -d '[:space:]') || count=0
+	[[ "$count" =~ ^[0-9]+$ ]] || count=0
+	echo "$count"
+	return 0
+}
+
+# _ratchet_count_hardcoded_path: count literal ~/.aidevops or /Users/ in scripts
+# Returns: count via stdout
+_ratchet_count_hardcoded_path() {
+	local scripts_dir="$1"
+	local count=0
+	# Tilde is intentional: we search for the literal string ~/.aidevops in scripts
+	# shellcheck disable=SC2088
+	count=$(rg '~/.aidevops|/Users/' --type sh "$scripts_dir" 2>/dev/null |
+		grep -v '^\s*#' |
+		grep -v '# ' |
+		wc -l | tr -d '[:space:]') || count=0
+	[[ "$count" =~ ^[0-9]+$ ]] || count=0
+	echo "$count"
+	return 0
+}
+
+# _ratchet_count_broad_catch: count || true usage
+# Returns: count via stdout
+_ratchet_count_broad_catch() {
+	local scripts_dir="$1"
+	local count=0
+	count=$(rg '\|\| true' --type sh "$scripts_dir" 2>/dev/null |
+		wc -l | tr -d '[:space:]') || count=0
+	[[ "$count" =~ ^[0-9]+$ ]] || count=0
+	echo "$count"
+	return 0
+}
+
+# _ratchet_count_silent_errors: count 2>/dev/null usage
+# Returns: count via stdout
+_ratchet_count_silent_errors() {
+	local scripts_dir="$1"
+	local count=0
+	count=$(rg '2>/dev/null' --type sh "$scripts_dir" 2>/dev/null |
+		wc -l | tr -d '[:space:]') || count=0
+	[[ "$count" =~ ^[0-9]+$ ]] || count=0
+	echo "$count"
+	return 0
+}
+
+# _ratchet_count_missing_return: count files with functions but fewer return statements
+# Returns: count via stdout
+_ratchet_count_missing_return() {
+	local missing_files=0
+	local file funcs returns
+	for file in "${ALL_SH_FILES[@]}"; do
+		[[ -f "$file" ]] || continue
+		funcs=$(grep -c "^[a-zA-Z_][a-zA-Z0-9_]*() {$" "$file" 2>/dev/null || echo "0")
+		returns=$(grep -cE "return [0-9]+|return \\\$" "$file" 2>/dev/null || echo "0")
+		funcs=$(echo "$funcs" | tr -d '[:space:]')
+		returns=$(echo "$returns" | tr -d '[:space:]')
+		[[ "$funcs" =~ ^[0-9]+$ ]] || funcs=0
+		[[ "$returns" =~ ^[0-9]+$ ]] || returns=0
+		if [[ "$returns" -lt "$funcs" ]]; then
+			missing_files=$((missing_files + 1))
+		fi
+	done
+	echo "$missing_files"
+	return 0
+}
+
+# _ratchet_load_exceptions: count non-comment lines in an exceptions file
+# Arguments: $1=exceptions_file
+# Returns: exception count via stdout
+_ratchet_load_exceptions() {
+	local exceptions_file="$1"
+	local count=0
+	if [[ -f "$exceptions_file" ]]; then
+		count=$(grep -cv '^[[:space:]]*#\|^[[:space:]]*$' "$exceptions_file" 2>/dev/null || echo "0")
+		[[ "$count" =~ ^[0-9]+$ ]] || count=0
+	fi
+	echo "$count"
+	return 0
+}
+
+# _ratchet_check_pattern: compare current count against baseline for one pattern
+# Arguments: $1=name $2=current $3=baseline $4=exceptions $5=strict_mode
+# Returns: 0=pass, 1=regressed
+_ratchet_check_pattern() {
+	local name="$1"
+	local current="$2"
+	local baseline="$3"
+	local exceptions="$4"
+	local strict_mode="$5"
+
+	local effective_current=$((current - exceptions))
+	local effective_baseline=$((baseline - exceptions))
+	[[ "$effective_current" -lt 0 ]] && effective_current=0
+	[[ "$effective_baseline" -lt 0 ]] && effective_baseline=0
+
+	if [[ "$effective_current" -lt "$effective_baseline" ]]; then
+		local improvement=$((effective_baseline - effective_current))
+		print_success "  PASS: ${name} ${effective_baseline} -> ${effective_current} (improved by ${improvement})"
+		return 0
+	elif [[ "$effective_current" -eq "$effective_baseline" ]]; then
+		print_success "  PASS: ${name} ${effective_current} (no change)"
+		return 0
+	else
+		local regression=$((effective_current - effective_baseline))
+		if [[ "$strict_mode" == "true" ]]; then
+			print_error "  FAIL: ${name} ${effective_baseline} -> ${effective_current} (regressed by ${regression}) — run --update-baseline after fixing"
+		else
+			print_warning "  WARN: ${name} ${effective_baseline} -> ${effective_current} (regressed by ${regression}) — advisory only (use --strict to block)"
+		fi
+		return 1
+	fi
+}
+
+# _ratchet_count_all: count current values for all 5 ratchet patterns
+# Arguments: $1=scripts_dir
+# Outputs: 5 space-separated counts: bare hardcoded broad silent missing
+# Returns: 0 always
+_ratchet_count_all() {
+	local scripts_dir="$1"
+	local count_bare count_hardcoded count_broad count_silent count_missing
+	count_bare=$(_ratchet_count_bare_positional "$scripts_dir")
+	count_hardcoded=$(_ratchet_count_hardcoded_path "$scripts_dir")
+	count_broad=$(_ratchet_count_broad_catch "$scripts_dir")
+	count_silent=$(_ratchet_count_silent_errors "$scripts_dir")
+	count_missing=$(_ratchet_count_missing_return)
+	echo "$count_bare $count_hardcoded $count_broad $count_silent $count_missing"
+	return 0
+}
+
+# _ratchet_write_baseline: build and write (or dry-run) a new baseline JSON file
+# Arguments: $1=baseline_file $2=count_bare $3=count_hardcoded $4=count_broad $5=count_silent $6=count_missing
+# Returns: 0 on success, 1 on jq failure
+_ratchet_write_baseline() {
+	local baseline_file="$1"
+	local count_bare="$2"
+	local count_hardcoded="$3"
+	local count_broad="$4"
+	local count_silent="$5"
+	local count_missing="$6"
+
+	local now
+	now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+	local new_json
+	new_json=$(jq -n \
+		--arg updated "$now" \
+		--argjson bare "$count_bare" \
+		--argjson hardcoded "$count_hardcoded" \
+		--argjson broad "$count_broad" \
+		--argjson silent "$count_silent" \
+		--argjson missing "$count_missing" \
+		'{
+			version: 1,
+			updated: $updated,
+			description: "Ratchet baselines for code quality regression prevention. Counts can only stay the same or decrease — never increase. Run linters-local.sh --update-baseline to lock in improvements.",
+			ratchets: {
+				bare_positional_params: {
+					count: $bare,
+					description: "$1/$2 etc. used directly in function bodies (should use local var=\"$1\")",
+					pattern: "\\$[1-9]",
+					exclude: "local.*=.*\\$[1-9]"
+				},
+				hardcoded_aidevops_path: {
+					count: $hardcoded,
+					description: "Literal ~/.aidevops or /Users/ instead of \${HOME}/.aidevops or variable",
+					pattern: "~/.aidevops|/Users/"
+				},
+				broad_catch_or_true: {
+					count: $broad,
+					description: "|| true used to suppress errors without specific handling",
+					pattern: "\\|\\| true"
+				},
+				silent_errors: {
+					count: $silent,
+					description: "2>/dev/null used to silently discard errors without handling",
+					pattern: "2>/dev/null"
+				},
+				missing_return_files: {
+					count: $missing,
+					description: "Files containing functions without explicit return 0 or return 1",
+					pattern: "functions_without_return"
+				}
+			}
+		}') || {
+		print_error "Ratchets: failed to generate baseline JSON"
+		return 1
+	}
+
+	if [[ "${RATCHET_DRY_RUN:-false}" == "true" ]]; then
+		print_info "Ratchets: --dry-run mode, would write baseline:"
+		echo "$new_json" | jq '.ratchets | to_entries[] | "  \(.key): \(.value.count)"' -r
+		return 0
+	fi
+
+	echo "$new_json" >"$baseline_file"
+	print_success "Ratchets: baseline updated in $baseline_file"
+	echo "$new_json" | jq '.ratchets | to_entries[] | "  \(.key): \(.value.count)"' -r
+	return 0
+}
+
+# _ratchet_load_baselines: read 5 baseline counts from the JSON baseline file
+# Arguments: $1=baseline_file
+# Outputs: 5 space-separated counts: bare hardcoded broad silent missing
+# Returns: 0 always
+_ratchet_load_baselines() {
+	local baseline_file="$1"
+	local baseline_bare baseline_hardcoded baseline_broad baseline_silent baseline_missing
+	baseline_bare=$(jq -r '.ratchets.bare_positional_params.count // 0' "$baseline_file" 2>/dev/null) || baseline_bare=0
+	baseline_hardcoded=$(jq -r '.ratchets.hardcoded_aidevops_path.count // 0' "$baseline_file" 2>/dev/null) || baseline_hardcoded=0
+	baseline_broad=$(jq -r '.ratchets.broad_catch_or_true.count // 0' "$baseline_file" 2>/dev/null) || baseline_broad=0
+	baseline_silent=$(jq -r '.ratchets.silent_errors.count // 0' "$baseline_file" 2>/dev/null) || baseline_silent=0
+	baseline_missing=$(jq -r '.ratchets.missing_return_files.count // 0' "$baseline_file" 2>/dev/null) || baseline_missing=0
+	echo "$baseline_bare $baseline_hardcoded $baseline_broad $baseline_silent $baseline_missing"
+	return 0
+}
+
+# _ratchet_load_all_exceptions: load exception counts for all 5 patterns
+# Arguments: $1=exceptions_dir
+# Outputs: 5 space-separated exception counts: bare hardcoded broad silent missing
+# Returns: 0 always
+_ratchet_load_all_exceptions() {
+	local exceptions_dir="$1"
+	local exc_bare exc_hardcoded exc_broad exc_silent exc_missing
+	exc_bare=$(_ratchet_load_exceptions "${exceptions_dir}/bare_positional_params.txt")
+	exc_hardcoded=$(_ratchet_load_exceptions "${exceptions_dir}/hardcoded_aidevops_path.txt")
+	exc_broad=$(_ratchet_load_exceptions "${exceptions_dir}/broad_catch_or_true.txt")
+	exc_silent=$(_ratchet_load_exceptions "${exceptions_dir}/silent_errors.txt")
+	exc_missing=$(_ratchet_load_exceptions "${exceptions_dir}/missing_return_files.txt")
+	echo "$exc_bare $exc_hardcoded $exc_broad $exc_silent $exc_missing"
+	return 0
+}
+
+# _ratchet_run_checks: run all 5 pattern checks and report aggregate result
+# Arguments: $1=strict_mode $2=count_bare $3=count_hardcoded $4=count_broad $5=count_silent $6=count_missing
+#            $7=baseline_bare $8=baseline_hardcoded $9=baseline_broad $10=baseline_silent $11=baseline_missing
+#            $12=exc_bare $13=exc_hardcoded $14=exc_broad $15=exc_silent $16=exc_missing
+# Returns: 0 if no regressions (or non-strict), 1 if regressions in strict mode
+_ratchet_run_checks() {
+	local strict_mode="$1"
+	local count_bare="$2" count_hardcoded="$3" count_broad="$4" count_silent="$5" count_missing="$6"
+	local baseline_bare="$7" baseline_hardcoded="$8" baseline_broad="$9" baseline_silent="${10}" baseline_missing="${11}"
+	local exc_bare="${12}" exc_hardcoded="${13}" exc_broad="${14}" exc_silent="${15}" exc_missing="${16}"
+	local ratchet_failures=0
+
+	_ratchet_check_pattern "bare_positional_params" "$count_bare" "$baseline_bare" "$exc_bare" "$strict_mode" || ratchet_failures=$((ratchet_failures + 1))
+	_ratchet_check_pattern "hardcoded_aidevops_path" "$count_hardcoded" "$baseline_hardcoded" "$exc_hardcoded" "$strict_mode" || ratchet_failures=$((ratchet_failures + 1))
+	_ratchet_check_pattern "broad_catch_or_true" "$count_broad" "$baseline_broad" "$exc_broad" "$strict_mode" || ratchet_failures=$((ratchet_failures + 1))
+	_ratchet_check_pattern "silent_errors" "$count_silent" "$baseline_silent" "$exc_silent" "$strict_mode" || ratchet_failures=$((ratchet_failures + 1))
+	_ratchet_check_pattern "missing_return_files" "$count_missing" "$baseline_missing" "$exc_missing" "$strict_mode" || ratchet_failures=$((ratchet_failures + 1))
+
+	if [[ "$ratchet_failures" -eq 0 ]]; then
+		print_success "Ratchets: all 5 patterns passing (no regressions)"
+		return 0
+	fi
+
+	if [[ "$strict_mode" == "true" ]]; then
+		print_error "Ratchets: ${ratchet_failures} pattern(s) regressed — fix violations or run --update-baseline to accept"
+		return 1
+	fi
+
+	print_warning "Ratchets: ${ratchet_failures} pattern(s) regressed (advisory — use --strict to block, --update-baseline to accept)"
+	return 0
+}
+
+# check_ratchets: main ratchet check function
+# Arguments: none (reads RATCHET_UPDATE_BASELINE and RATCHET_STRICT from env)
+# Returns: 0 if all ratchets pass, 1 if any regressed (only blocks in strict mode)
+check_ratchets() {
+	echo -e "${BLUE}Checking Ratchet Quality Gates (t1878)...${NC}"
+
+	local scripts_dir
+	scripts_dir="$(git rev-parse --show-toplevel 2>/dev/null)/.agents/scripts" || scripts_dir=".agents/scripts"
+	local baseline_file
+	baseline_file="$(git rev-parse --show-toplevel 2>/dev/null)/.agents/configs/ratchets.json" || baseline_file=".agents/configs/ratchets.json"
+	local exceptions_dir
+	exceptions_dir="$(git rev-parse --show-toplevel 2>/dev/null)/.agents/configs/ratchet-exceptions" || exceptions_dir=".agents/configs/ratchet-exceptions"
+
+	if ! command -v rg &>/dev/null; then
+		print_warning "Ratchets: rg (ripgrep) not installed — skipping (install: brew install ripgrep)"
+		return 0
+	fi
+
+	if ! command -v jq &>/dev/null; then
+		print_warning "Ratchets: jq not installed — skipping (install: brew install jq)"
+		return 0
+	fi
+
+	# Count current values for all patterns
+	local counts count_bare count_hardcoded count_broad count_silent count_missing
+	counts=$(_ratchet_count_all "$scripts_dir")
+	read -r count_bare count_hardcoded count_broad count_silent count_missing <<<"$counts"
+
+	# --update-baseline / --init-baseline: write new baseline and exit
+	if [[ "${RATCHET_UPDATE_BASELINE:-false}" == "true" ]]; then
+		_ratchet_write_baseline "$baseline_file" "$count_bare" "$count_hardcoded" "$count_broad" "$count_silent" "$count_missing"
+		return $?
+	fi
+
+	# Check baseline file exists
+	if [[ ! -f "$baseline_file" ]]; then
+		print_warning "Ratchets: no baseline found at $baseline_file — run --init-baseline to create"
+		return 0
+	fi
+
+	# Load baselines and exceptions
+	local baselines exceptions
+	local baseline_bare baseline_hardcoded baseline_broad baseline_silent baseline_missing
+	local exc_bare exc_hardcoded exc_broad exc_silent exc_missing
+	baselines=$(_ratchet_load_baselines "$baseline_file")
+	exceptions=$(_ratchet_load_all_exceptions "$exceptions_dir")
+	read -r baseline_bare baseline_hardcoded baseline_broad baseline_silent baseline_missing <<<"$baselines"
+	read -r exc_bare exc_hardcoded exc_broad exc_silent exc_missing <<<"$exceptions"
+
+	local strict_mode="${RATCHET_STRICT:-false}"
+	_ratchet_run_checks "$strict_mode" \
+		"$count_bare" "$count_hardcoded" "$count_broad" "$count_silent" "$count_missing" \
+		"$baseline_bare" "$baseline_hardcoded" "$baseline_broad" "$baseline_silent" "$baseline_missing" \
+		"$exc_bare" "$exc_hardcoded" "$exc_broad" "$exc_silent" "$exc_missing"
+	return $?
 }
 
 # =============================================================================
@@ -1338,18 +1709,11 @@ should_skip_gate() {
 	return 1
 }
 
-main() {
-	print_header
-
+# _run_gate_checks_static: run static analysis gates (sonarcloud through secret-policy).
+# Returns: 0 if all passed, 1 if any failed.
+_run_gate_checks_static() {
 	local exit_code=0
 
-	# Collect shell files once (includes modularised subdirectories, excludes _archive/)
-	collect_shell_files
-
-	# Load bundle config for gate filtering (t1364.6)
-	load_bundle_gates
-
-	# Run all local quality checks (respecting bundle skip_gates)
 	if ! should_skip_gate "sonarcloud"; then
 		check_sonarcloud_status || exit_code=1
 		echo ""
@@ -1410,6 +1774,19 @@ main() {
 		echo ""
 	fi
 
+	if ! should_skip_gate "ratchets"; then
+		check_ratchets || exit_code=1
+		echo ""
+	fi
+
+	return $exit_code
+}
+
+# _run_gate_checks_complexity: run complexity and compatibility gates (bash32 through python).
+# Returns: 0 if all passed, 1 if any failed.
+_run_gate_checks_complexity() {
+	local exit_code=0
+
 	if ! should_skip_gate "bash32-compat"; then
 		check_bash32_compat || exit_code=1
 		echo ""
@@ -1434,6 +1811,55 @@ main() {
 		check_python_complexity || exit_code=1
 		echo ""
 	fi
+
+	return $exit_code
+}
+
+# Run all gate checks in order, respecting bundle skip_gates.
+# Returns: 0 if all gates passed, 1 if any gate failed.
+_run_gate_checks() {
+	local exit_code=0
+
+	_run_gate_checks_static || exit_code=1
+	_run_gate_checks_complexity || exit_code=1
+
+	return $exit_code
+}
+
+main() {
+	# Parse ratchet flags before running checks
+	local arg
+	for arg in "$@"; do
+		case "$arg" in
+		--update-baseline | --init-baseline)
+			export RATCHET_UPDATE_BASELINE=true
+			;;
+		--strict)
+			export RATCHET_STRICT=true
+			;;
+		--dry-run)
+			export RATCHET_DRY_RUN=true
+			;;
+		esac
+	done
+
+	print_header
+
+	# Collect shell files once (includes modularised subdirectories, excludes _archive/)
+	collect_shell_files
+
+	# Load bundle config for gate filtering (t1364.6)
+	load_bundle_gates
+
+	# If --update-baseline, run only the ratchet check (which handles baseline update)
+	if [[ "${RATCHET_UPDATE_BASELINE:-false}" == "true" ]]; then
+		check_ratchets
+		return $?
+	fi
+
+	# Run all local quality checks (respecting bundle skip_gates)
+	local exit_code=0
+	_run_gate_checks || exit_code=1
 
 	check_remote_cli_status
 	echo ""
